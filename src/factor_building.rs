@@ -81,13 +81,11 @@ fn attempt_factorization(
     test_factorization(n, &a, &b)
 }
 
-pub fn find_factor(
+fn search_lonelies(
     n: &NumberType,
     smoothies: &[SmoothNumber<NumberType>],
     solution: &Solution,
 ) -> Option<(BigUint, BigUint)> {
-    //first, try lonely numbers - maybe, we will find perfect square without multiplying
-
     let n = n.to_varsize();
 
     let two = BigUint::from_i32(2).unwrap();
@@ -105,6 +103,21 @@ pub fn find_factor(
             return Some(solution);
         }
     }
+    None
+}
+
+pub fn find_factor_exhaustive(
+    n: &NumberType,
+    smoothies: &[SmoothNumber<NumberType>],
+    solution: &Solution,
+) -> Option<(BigUint, BigUint)> {
+    //first, try lonely numbers - maybe, we will find perfect square without multiplying
+
+    if let Some(answ) = search_lonelies(n, smoothies, solution) {
+        return Some(answ);
+    }
+
+    let n = n.to_varsize();
 
     if solution.free_variables.is_empty() {
         // no nontrivial except for lonely numbers which all produce trivials
@@ -126,6 +139,46 @@ pub fn find_factor(
             return Some(sol);
         }
         increase(&mut free_mapping);
+    }
+
+    None
+}
+
+pub fn find_factor_simple(
+    n: &NumberType,
+    smoothies: &[SmoothNumber<NumberType>],
+    solution: &Solution,
+) -> Option<(BigUint, BigUint)> {
+    //first, try lonely numbers - maybe, we will find perfect square without multiplying
+
+    if let Some(answ) = search_lonelies(n, smoothies, solution) {
+        return Some(answ);
+    }
+
+    let n = n.to_varsize();
+
+    if solution.free_variables.is_empty() {
+        // no nontrivial except for lonely numbers which all produce trivials
+        return None;
+    }
+
+    // if it fails, it means that all lonely numbers produce trivial factorization, do not include them
+
+    let limit = solution.free_variables.len();
+
+    println!("variables for base vector search: {limit}");
+
+    let mut free_mapping = vec![false; solution.free_variables.len()];
+
+    for i in 0..free_mapping.len() {
+        if i > 0 {
+            free_mapping[i - 1] = false;
+        }
+        free_mapping[i] = true;
+
+        if let Some(sol) = attempt_factorization(&n, smoothies, solution, &free_mapping) {
+            return Some(sol);
+        }
     }
 
     None
