@@ -2,6 +2,7 @@ use crate::number_type::{NumberOps, NumberType};
 
 use crypto_bigint::Zero;
 use itertools::Itertools;
+use num_bigint::BigUint;
 
 pub fn small_eratosphenes(upper_limit: usize) -> Vec<usize> {
     assert!(
@@ -27,6 +28,29 @@ pub fn small_eratosphenes(upper_limit: usize) -> Vec<usize> {
         }
     }
     result
+}
+
+fn legendre(a: BigUint, p: BigUint) -> isize {
+    use num_traits::Zero;
+    let power = (p.clone() - BigUint::from(1usize)) / BigUint::from(2usize);
+
+    let res = a.modpow(&power, &p);
+
+    if res == (p - BigUint::from(1usize)) {
+        return -1;
+    }
+
+    if res.is_zero() {
+        return 0;
+    }
+    1
+}
+
+pub fn build_factor_base(primes: Vec<usize>, n: &NumberType) -> Vec<usize> {
+    primes
+        .into_iter()
+        .filter(|&prime| legendre(n.to_varsize(), BigUint::from(prime)) == 1)
+        .collect_vec()
 }
 
 pub fn small_smooth(upper_limit: usize, b_value: usize) -> Vec<usize> {
