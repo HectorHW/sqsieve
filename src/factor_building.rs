@@ -85,16 +85,16 @@ pub fn find_factor(
     })
     .take_while(|&n| n >= 2);
 
+    let mut free_mapping = vec![false; solution.free_variables.len()];
+
     for pressure in pressure_variants {
         println!("trying 1/{}", pressure);
         for _attempt in 0..attempts {
-            let free_mapping = solution
-                .free_variables
-                .iter()
-                .map(|&_term| rng.gen_ratio(1, pressure))
-                .collect::<Vec<bool>>();
+            free_mapping
+                .iter_mut()
+                .for_each(|position| *position = rng.gen_ratio(1, pressure));
 
-            let inclusion = solution.subsitute(free_mapping, false);
+            let inclusion = solution.subsitute(&free_mapping, false);
 
             let (mut a, mut b) = smoothies
                 .iter()

@@ -268,7 +268,7 @@ pub struct Solution {
 }
 
 impl Solution {
-    pub fn subsitute(&self, free_vars: Vec<bool>, one_lonelies: bool) -> Vec<bool> {
+    pub fn subsitute(&self, free_vars: &[bool], one_lonelies: bool) -> Vec<bool> {
         assert_eq!(free_vars.len(), self.free_variables.len());
         let mut answer = vec![false; self.vars.len()];
 
