@@ -91,8 +91,8 @@ pub fn find_factor(
             let free_mapping = solution
                 .free_variables
                 .iter()
-                .map(|&term| (term, rng.gen_ratio(1, pressure)))
-                .collect::<HashMap<usize, bool>>();
+                .map(|&_term| rng.gen_ratio(1, pressure))
+                .collect::<Vec<bool>>();
 
             let inclusion = solution.subsitute(free_mapping, false);
 
