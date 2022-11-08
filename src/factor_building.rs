@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::iter::repeat_with;
+use std::ops::Rem;
 
 use crate::number_type::{NumberOps, NumberType};
 use crate::{sieve::SmoothNumber, solver::Solution};
@@ -24,6 +25,13 @@ pub fn euclid(x: &BigUint, y: &BigUint) -> BigUint {
 
 /// `a` is expected to be greater
 fn test_factorization(n: &BigUint, a: &BigUint, b: &BigUint) -> Option<(BigUint, BigUint)> {
+    let mut a = a.rem(n);
+    let mut b = b.rem(n);
+
+    if b > a {
+        std::mem::swap(&mut a, &mut b);
+    }
+
     let gcd = euclid(n, &(a.clone() - b));
     if &gcd != n && gcd.bits() != 1 {
         let other_term = n / gcd.clone();
@@ -59,7 +67,7 @@ fn attempt_factorization(
 ) -> Option<(BigUint, BigUint)> {
     let inclusion = solution.subsitute(substitution_vector, false);
 
-    let (mut a, mut b) = smoothies
+    let (a, b) = smoothies
         .iter()
         .zip(inclusion.iter())
         .filter_map(|(a, &b)| if b { Some(a) } else { None })
@@ -73,10 +81,6 @@ fn attempt_factorization(
                     .product::<BigUint>();
             (left, right)
         });
-
-    if b > a {
-        std::mem::swap(&mut a, &mut b);
-    }
 
     test_factorization(n, &a, &b)
 }
@@ -112,6 +116,8 @@ pub fn find_factor_exhaustive(
     solution: &Solution,
 ) -> Option<(BigUint, BigUint)> {
     //first, try lonely numbers - maybe, we will find perfect square without multiplying
+
+    println!("using exhaustive search");
 
     if let Some(answ) = search_lonelies(n, smoothies, solution) {
         return Some(answ);
@@ -151,6 +157,8 @@ pub fn find_factor_simple(
 ) -> Option<(BigUint, BigUint)> {
     //first, try lonely numbers - maybe, we will find perfect square without multiplying
 
+    println!("trying base vector search");
+
     if let Some(answ) = search_lonelies(n, smoothies, solution) {
         return Some(answ);
     }
@@ -178,6 +186,89 @@ pub fn find_factor_simple(
 
         if let Some(sol) = attempt_factorization(&n, smoothies, solution, &free_mapping) {
             return Some(sol);
+        }
+    }
+
+    None
+}
+
+pub fn find_factors_random(
+    n: &NumberType,
+    smoothies: &[SmoothNumber<NumberType>],
+    solution: &Solution,
+) -> Option<(BigUint, BigUint)> {
+    //first, try lonely numbers - maybe, we will find perfect square without multiplying
+
+    println!("trying random search");
+
+    if let Some(answ) = search_lonelies(n, smoothies, solution) {
+        return Some(answ);
+    }
+
+    let n = n.to_varsize();
+
+    if solution.free_variables.is_empty() {
+        // no nontrivial except for lonely numbers which all produce trivials
+        return None;
+    }
+
+    // if it fails, it means that all lonely numbers produce trivial factorization, do not include them
+
+    let attempts = 2usize
+        .checked_pow(solution.free_variables.len() as u32)
+        .map(|v| v.min(10_000))
+        .unwrap_or(10_000);
+
+    let mut rng = thread_rng();
+
+    let one = BigUint::from_i32(1).unwrap();
+
+    let limit = solution.free_variables.len();
+
+    let mut current_limit = limit;
+
+    let pressure_variants = repeat_with(|| {
+        let next_value = current_limit;
+        current_limit /= 2;
+        next_value as u32
+    })
+    .take_while(|&n| n >= 2);
+
+    let mut free_mapping = vec![false; solution.free_variables.len()];
+
+    for pressure in pressure_variants {
+        println!("trying 1/{}", pressure);
+        for _attempt in 0..attempts {
+            free_mapping
+                .iter_mut()
+                .for_each(|position| *position = rng.gen_ratio(1, pressure));
+
+            let inclusion = solution.subsitute(&free_mapping, false);
+
+            let (mut a, mut b) = smoothies
+                .iter()
+                .zip(inclusion.iter())
+                .filter_map(|(a, &b)| if b { Some(a) } else { None })
+                .fold((one.clone(), one.clone()), |acc, item| {
+                    let left = acc.0 * &item.number.to_varsize();
+                    let right = acc.1
+                        * item
+                            .divisors
+                            .iter()
+                            .map(|&(divisor, power)| BigUint::from(divisor).pow(power as u32))
+                            .product::<BigUint>();
+                    (left, right)
+                });
+
+            if b > a {
+                std::mem::swap(&mut a, &mut b);
+            }
+
+            let Some(solution) = test_factorization(&n, &a, &b) else {
+                continue;
+            };
+
+            return Some(solution);
         }
     }
 

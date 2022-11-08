@@ -5,7 +5,7 @@ use itertools::Itertools;
 use num_bigint::BigUint;
 
 use crate::{
-    factor_building::{find_factor_exhaustive, find_factor_simple},
+    factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
     number_type::{NumberOps, NumberType},
     numbers::{build_factor_base, small_eratosphenes},
     sieve::{compute_b_limit, sieve_for_smoothies},
@@ -28,7 +28,7 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
 
     println!("built factor base of size {}", factor_base.len(),);
 
-    if factor_base.len() < 5 {
+    if factor_base.len() < 2 {
         println!("this is too small");
         return None;
     }
@@ -87,7 +87,9 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
 
     println!("built solution dependencies, searching for factors");
 
-    find_factor_exhaustive(n, &table, &solution)
+    find_factor_simple(n, &table, &solution)
+        .or_else(|| find_factors_random(n, &table, &solution))
+        .or_else(|| find_factor_exhaustive(n, &table, &solution))
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -101,6 +103,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let n = BigUint::from_str(&args[1]).unwrap();
 
+    println!("n: {}", n);
+
+    println!("base 10 digits: {}", n.to_string().len());
+
+    println!("bit size: {}", n.bits());
+
     let bytes = n.to_bytes_be();
 
     if bytes.len() > 64 {
@@ -113,8 +121,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect_vec();
 
     let n = NumberType::from_be_slice(&bytes);
-
-    println!("n: {}", n.to_varsize());
 
     //let prime_bound = compute_b_limit(&n);
     //let prime_bound = compute_b_limit(&n).min(10usize.pow(3));
