@@ -1,0 +1,21 @@
+[package]
+name = "sqsieve"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+itertools = "0.10.5"
+crypto-bigint = "0.4.9"
+num-bigint = "0.4.3"
+num-traits = "0.2.15"
+num-integer = "0.1.45"
+lazy_static = "1.4.0"
+rand = "0.8.5"
+
+[features]
+verbose = []
+
+#[profile.release]
+#debug = true
