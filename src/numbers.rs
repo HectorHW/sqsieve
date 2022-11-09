@@ -96,7 +96,7 @@ pub fn factor_smooth(n: &NumberType, prime_table: &[usize]) -> Option<DenseMulti
     'outer: for &prime in prime_table {
         loop {
             let (d, r) = n.divmod(prime);
-            if r.is_zero().unwrap_u8() != 0 {
+            if r.is_zero().unwrap_u8() == 0 {
                 break;
             }
             match result.last_mut() {
