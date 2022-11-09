@@ -1,13 +1,10 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
-    ops::{AddAssign, Index},
+    ops::AddAssign,
 };
 
 use itertools::Itertools;
-use num_bigint::BigUint;
-
-use crate::{numbers::DenseMultiplierMap, sieve::SmoothiesVec};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SparseRow {
@@ -413,7 +410,6 @@ pub fn produce_solution(system: &CongruenceSystem) -> Solution {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
 
     use super::{produce_solution, CongruenceSystem, Dependency, Solution, SparseRow};
     use std::collections::HashSet;

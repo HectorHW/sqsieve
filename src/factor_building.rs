@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::iter::repeat_with;
 use std::ops::Rem;
 
 use crate::number_type::{NumberOps, NumberType};
 use crate::{sieve::SmoothNumber, solver::Solution};
+use itertools::Itertools;
 use lazy_static::lazy_static;
 use num_bigint::BigUint;
 use num_traits::FromPrimitive;
@@ -56,6 +56,24 @@ fn increase(vec: &mut [bool]) {
 
 lazy_static! {
     static ref ONE: BigUint = BigUint::from_i32(1).unwrap();
+    static ref TWO: BigUint = BigUint::from_i32(2).unwrap();
+}
+
+fn build_numbers(
+    n: &BigUint,
+    smoothies: &[SmoothNumber<NumberType>],
+    positions: &[usize],
+) -> (BigUint, BigUint) {
+    let (mut a, mut b) = (ONE.clone(), ONE.clone());
+
+    for &index in positions {
+        a *= smoothies[index].number.to_varsize();
+        b *= smoothies[index].number.to_varsize().modpow(&TWO, n);
+    }
+
+    b = b.sqrt();
+
+    (a, b)
 }
 
 #[inline]
@@ -65,22 +83,14 @@ fn attempt_factorization(
     solution: &Solution,
     substitution_vector: &[bool],
 ) -> Option<(BigUint, BigUint)> {
-    let inclusion = solution.subsitute(substitution_vector, false);
+    let inclusion = solution
+        .subsitute(substitution_vector, false)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, p)| if p { Some(i) } else { None })
+        .collect_vec();
 
-    let (a, b) = smoothies
-        .iter()
-        .zip(inclusion.iter())
-        .filter_map(|(a, &b)| if b { Some(a) } else { None })
-        .fold((ONE.clone(), ONE.clone()), |acc, item| {
-            let left = acc.0 * &item.number.to_varsize();
-            let right = acc.1
-                * item
-                    .divisors
-                    .iter()
-                    .map(|&(divisor, power)| BigUint::from(divisor).pow(power as u32))
-                    .product::<BigUint>();
-            (left, right)
-        });
+    let (a, b) = build_numbers(n, smoothies, &inclusion);
 
     test_factorization(n, &a, &b)
 }
@@ -274,6 +284,22 @@ pub fn find_factors_random(
         }
     }
 
+    None
+}
+
+pub fn find_factors_from_pivots(
+    n: &NumberType,
+    smoothies: &[SmoothNumber<NumberType>],
+    solution: &[Vec<usize>],
+) -> Option<(BigUint, BigUint)> {
+    let n = n.to_varsize();
+    for vector in solution {
+        let (a, b) = build_numbers(&n, smoothies, vector);
+
+        if let Some(answ) = test_factorization(&n, &a, &b) {
+            return Some(answ);
+        }
+    }
     None
 }
 

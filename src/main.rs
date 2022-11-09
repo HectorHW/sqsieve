@@ -1,12 +1,13 @@
 use std::{env::args, error::Error, iter::repeat, str::FromStr};
 
-use crypto_bigint::prelude::*;
+use factor_building::find_factors_from_pivots;
 use itertools::Itertools;
 use num_bigint::BigUint;
+use sieve::SmoothNumber;
 
 use crate::{
     factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
-    number_type::{NumberOps, NumberType},
+    number_type::NumberType,
     numbers::{build_factor_base, small_eratosphenes},
     sieve::{compute_b_limit, sieve_for_smoothies},
     solver::{produce_solution, CongruenceSystem},
@@ -19,54 +20,11 @@ mod factor_building;
 mod sieve;
 mod solver;
 
-fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> {
-    let primes = small_eratosphenes(prime_bound);
-
-    println!("primes until bound: {}", primes.len());
-
-    let factor_base = build_factor_base(primes, n);
-
-    println!("built factor base of size {}", factor_base.len(),);
-
-    if factor_base.len() < 2 {
-        println!("this is too small");
-        return None;
-    }
-
-    let sieving_limit = factor_base.len() + 33;
-
-    println!("need about {sieving_limit} numbers");
-
-    let table = sieve_for_smoothies(n, &factor_base, |_, _| sieving_limit).unwrap();
-
-    println!("done collecting, building solution");
-
-    #[cfg(feature = "verbose")]
-    println!("{:?}", table);
-
-    #[cfg(feature = "verbose")]
-    for (i, item) in table.iter().enumerate() {
-        println!("{i} -> {}", item.number);
-    }
-
-    let row_labels = (0..table.len()).collect_vec();
-    let rows = table.iter().map(|row| row.divisors.clone()).collect_vec();
-
-    let system = CongruenceSystem::new(&rows, row_labels);
-
-    #[cfg(feature = "verbose")]
-    println!("{}", system.print_as_dense());
-
-    #[cfg(feature = "verbose")]
-    println!("---------");
-
-    let mut system = system.transpose();
-    #[cfg(feature = "verbose")]
-    println!("{}", system.print_as_dense());
-
-    #[cfg(feature = "verbose")]
-    println!("---------");
-
+fn gaussian_multistage(
+    n: &NumberType,
+    table: Vec<SmoothNumber<NumberType>>,
+    mut system: CongruenceSystem,
+) -> Option<(BigUint, BigUint)> {
     system.diagonalize();
 
     #[cfg(feature = "verbose")]
@@ -90,6 +48,72 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
     find_factor_simple(n, &table, &solution)
         .or_else(|| find_factors_random(n, &table, &solution))
         .or_else(|| find_factor_exhaustive(n, &table, &solution))
+}
+
+fn pivot_search(
+    n: &NumberType,
+    table: Vec<SmoothNumber<NumberType>>,
+    mut system: CongruenceSystem,
+) -> Option<(BigUint, BigUint)> {
+    println!("using fast pivot algorithm");
+    let vectors = system.fast_pivot();
+    println!("produced {} candidates", vectors.len());
+    if let Some(answ) = find_factors_from_pivots(n, &table, &vectors) {
+        return Some(answ);
+    }
+
+    None
+}
+
+fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> {
+    let primes = small_eratosphenes(prime_bound);
+
+    println!("primes until bound: {}", primes.len());
+
+    let factor_base = build_factor_base(primes, n);
+
+    println!("built factor base of size {}", factor_base.len(),);
+
+    if factor_base.len() < 2 {
+        println!("this is too small");
+        return None;
+    }
+
+    #[cfg(feature = "verbose")]
+    println!("factor base: {:?}", factor_base);
+
+    let sieving_limit = (factor_base.len() as f64 * 1.05f64).ceil() as usize;
+
+    println!("need about {sieving_limit} numbers");
+
+    let table = sieve_for_smoothies(n, &factor_base, |_, _| sieving_limit).unwrap();
+
+    println!("done collecting, building solution");
+
+    #[cfg(feature = "verbose")]
+    println!("{:?}", table);
+
+    #[cfg(feature = "verbose")]
+    for (i, item) in table.iter().enumerate() {
+        println!("{i} -> {}", item.number);
+    }
+
+    let row_labels = (0..table.len()).collect_vec();
+    let rows = table.iter().map(|row| row.divisors.clone()).collect_vec();
+
+    let system = CongruenceSystem::with_labels(&rows, factor_base, row_labels).transpose();
+
+    #[cfg(feature = "verbose")]
+    println!("{}", system.print_as_dense());
+
+    #[cfg(feature = "verbose")]
+    println!("---------");
+
+    if cfg!(feature = "multistage") {
+        gaussian_multistage(n, table, system)
+    } else {
+        pivot_search(n, table, system)
+    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
