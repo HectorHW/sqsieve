@@ -9,7 +9,7 @@ use crate::{
     factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
     number_type::NumberType,
     numbers::{build_factor_base, small_eratosphenes},
-    sieve::{block_division_sieve, compute_b_limit, test_division_sieve},
+    sieve::{block_division_sieve, compute_b_limit, TestDivisionSieve},
     solver::{produce_solution, CongruenceSystem},
 };
 
@@ -86,9 +86,9 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
 
     const NUM_ATTEMPTS: usize = 5;
 
-    let mut cont = None;
-
     let mut table = vec![];
+
+    let mut sieve = TestDivisionSieve::new(*n, factor_base.clone());
 
     for _ in 0..NUM_ATTEMPTS {
         let sieving_limit = usize::max(
@@ -98,17 +98,9 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
 
         println!("need about {sieving_limit} numbers");
 
-        let (mut additional_table, new_cont) = test_division_sieve(
-            n,
-            &factor_base,
-            |_, _| sieving_limit.saturating_sub(table.len()),
-            cont,
-        )
-        .unwrap();
+        let mut additional_table = sieve.run(sieving_limit.saturating_sub(table.len()));
 
         table.append(&mut additional_table);
-
-        cont = Some(new_cont);
 
         println!("done collecting, building solution");
 

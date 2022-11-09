@@ -26,66 +26,63 @@ pub struct SmoothNumber<NT> {
     pub divisors: Vec<(usize, usize)>,
 }
 
-pub fn constant_b_limit<const N: usize>(_n: &NumberType) -> usize {
-    N
-}
-
-/// number of smooth numbers we need to find while sieving
-fn approximate_relations(_n: &NumberType, primes: &[usize]) -> usize {
-    primes.len() + 7
-}
-
 pub type SmoothiesVec = Vec<SmoothNumber<NumberType>>;
 
-pub fn test_division_sieve<F: FnOnce(&NumberType, &[usize]) -> usize>(
-    n: &NumberType,
-    prime_table: &[usize],
-    stop_criteria: F,
-    continuation: Option<NumberType>,
-) -> Result<(SmoothiesVec, NumberType), Box<dyn Error>> {
-    let lower_bound = continuation.unwrap_or_else(|| n.sqrt().add_usize(1));
+pub struct TestDivisionSieve {
+    n: NumberType,
+    factor_base: Vec<usize>,
+    next_number: NumberType,
+}
 
-    let mut result = vec![];
-
-    let mut next_number = lower_bound;
-
-    let total_numbers = stop_criteria(n, prime_table);
-
-    let mut numbers_to_find = total_numbers;
-
-    let mut last_time = Instant::now();
-
-    while numbers_to_find > 0 {
-        let sq_mod = next_number.clone().modpow2(n);
-
-        if let Some(mapping) = factor_smooth(&sq_mod, prime_table) {
-            #[cfg(feature = "verbose")]
-            println!(
-                "found number {}^2 === {}",
-                next_number.to_varsize(),
-                sq_mod.to_varsize()
-            );
-            result.push(SmoothNumber {
-                number: next_number.clone(),
-                divisors: mapping,
-            });
-            numbers_to_find -= 1;
-
-            let now = Instant::now();
-
-            if (now - last_time).as_secs() >= 5 {
-                last_time = now;
-                println!(
-                    "done {:.1}%",
-                    (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
-                );
-            }
+impl TestDivisionSieve {
+    pub fn new(n: NumberType, factor_base: Vec<usize>) -> Self {
+        let lower_bound = n.sqrt().add_usize(1);
+        TestDivisionSieve {
+            n,
+            factor_base,
+            next_number: lower_bound,
         }
-
-        next_number = next_number.add_usize(1);
     }
 
-    Ok((result, next_number.wrapping_add(NumberType::one())))
+    pub fn run(&mut self, mut numbers_to_find: usize) -> SmoothiesVec {
+        let mut result = vec![];
+
+        let total_numbers = numbers_to_find;
+
+        let mut last_time = Instant::now();
+
+        while numbers_to_find > 0 {
+            let sq_mod = self.next_number.clone().modpow2(&self.n);
+
+            if let Some(mapping) = factor_smooth(&sq_mod, &self.factor_base) {
+                #[cfg(feature = "verbose")]
+                println!(
+                    "found number {}^2 === {}",
+                    self.next_number.to_varsize(),
+                    sq_mod.to_varsize()
+                );
+                result.push(SmoothNumber {
+                    number: self.next_number.clone(),
+                    divisors: mapping,
+                });
+                numbers_to_find -= 1;
+
+                let now = Instant::now();
+
+                if (now - last_time).as_secs() >= 5 {
+                    last_time = now;
+                    println!(
+                        "done {:.1}%",
+                        (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+                    );
+                }
+            }
+
+            self.next_number = self.next_number.add_usize(1);
+        }
+
+        result
+    }
 }
 
 const BLOCK_SIZE: usize = 5000;
@@ -98,8 +95,6 @@ pub fn block_division_sieve<F: FnOnce(&NumberType, &[usize]) -> usize>(
     let lower_bound = n.sqrt().add_usize(1);
 
     let mut result = vec![];
-
-    let mut next_number = lower_bound;
 
     let total_numbers = stop_criteria(n, prime_table);
 
