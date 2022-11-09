@@ -260,6 +260,8 @@ pub fn find_factors_random(
                     (left, right)
                 });
 
+            b = b.sqrt();
+
             if b > a {
                 std::mem::swap(&mut a, &mut b);
             }
