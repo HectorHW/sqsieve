@@ -9,7 +9,7 @@ use crate::{
     factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
     number_type::NumberType,
     numbers::{build_factor_base, small_eratosphenes},
-    sieve::{compute_b_limit, BlockSieve, TestDivisionSieve},
+    sieve::{compute_b_limit, BlockSieve, LogSieve, TestDivisionSieve},
     solver::{produce_solution, CongruenceSystem},
 };
 
