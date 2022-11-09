@@ -1,13 +1,13 @@
-use std::{error::Error, iter::repeat_with, time::Instant};
+use std::{error::Error, iter::repeat_with, ops::Rem, time::Instant};
 
 use crypto_bigint::Zero;
 use itertools::Itertools;
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint, ToBigInt};
 use num_traits::{Pow, ToPrimitive};
 
 use crate::{
     number_type::{NumberOps, NumberType},
-    numbers::factor_smooth,
+    numbers::{factor_smooth, tonelli_shanks},
 };
 
 pub fn compute_b_limit(n: &NumberType) -> usize {
@@ -85,50 +85,12 @@ impl TestDivisionSieve {
     }
 }
 
-const BLOCK_SIZE: usize = 5000;
-
-pub fn block_division_sieve<F: FnOnce(&NumberType, &[usize]) -> usize>(
-    n: &NumberType,
-    prime_table: &[usize],
-    stop_criteria: F,
-) -> Result<SmoothiesVec, Box<dyn Error>> {
-    let lower_bound = n.sqrt().add_usize(1);
-
-    let mut result = vec![];
-
-    let total_numbers = stop_criteria(n, prime_table);
-
-    let mut numbers_to_find = total_numbers as isize;
-
-    let mut current_bound = lower_bound;
-
-    let step = NumberType::convert_usize(BLOCK_SIZE);
-
-    let mut last_time = Instant::now();
-
-    while numbers_to_find > 0 {
-        let mut produced_items = search_block(n, BLOCK_SIZE, current_bound, prime_table);
-
-        #[cfg(feature = "verbose")]
-        println!("block produced {} items", produced_items.len());
-
-        current_bound = current_bound.wrapping_add(&step);
-
-        numbers_to_find -= produced_items.len() as isize;
-
-        result.append(&mut produced_items);
-
-        let now = Instant::now();
-
-        if (now - last_time).as_secs() >= 5 {
-            last_time = now;
-            println!(
-                "done {:.1}%",
-                (total_numbers as isize - numbers_to_find) as f64 / total_numbers as f64 * 100f64
-            );
-        }
-    }
-    Ok(result)
+pub struct BlockSieve {
+    n: NumberType,
+    factor_base: Vec<usize>,
+    roots: Vec<Option<(usize, usize)>>,
+    block_size: usize,
+    next_block: NumberType,
 }
 
 struct BlockEntry {
@@ -137,85 +99,173 @@ struct BlockEntry {
     factorization: Vec<(usize, usize)>,
 }
 
-fn search_block(
-    n: &NumberType,
-    block_size: usize,
-    mut start: NumberType,
-    prime_table: &[usize],
-) -> Vec<SmoothNumber<NumberType>> {
-    assert!(block_size > prime_table.last().cloned().unwrap());
-    // #[cfg(feature = "verbose")]
-    println!(
-        "working with block size {} starting at {}",
-        block_size,
-        start.to_varsize()
-    );
+const BLOCK_SIZE: usize = 5000;
 
-    let mut block = repeat_with(|| {
-        let number = start.clone();
-        start = start.wrapping_add(NumberType::one());
+impl BlockSieve {
+    pub fn new(n: NumberType, factor_base: Vec<usize>) -> Self {
+        let roots = factor_base
+            .iter()
+            .map(|&factor| {
+                let n = n.to_varsize().rem(factor).to_u64().unwrap() as usize;
 
-        BlockEntry {
-            original_number: number,
-            accumulator: number.modpow2(n),
-            factorization: Vec::with_capacity(16),
-        }
-    })
-    .take(block_size)
-    .collect_vec();
+                let Some(s1) = tonelli_shanks(n, factor) else{
+                    return None;
+                };
 
-    'primeiter: for &prime in prime_table {
-        //find start of sequence by trying different items
-        let mut idx = 0;
+                let s2 = factor - s1;
+                Some((s1, s2))
+            })
+            .collect_vec();
 
-        loop {
-            unimplemented!("this search is wrong, use tonelli-shanks to find roots");
-            let (d, r) = block[idx].accumulator.divmod(prime);
-            if r.is_zero().unwrap_u8() == 1 {
-                break;
-            }
-            idx += 1;
-            if idx >= block.len() {
-                continue 'primeiter;
-            }
-        }
+        #[cfg(feature = "verbose")]
+        println!("roots: {roots:?}");
 
-        println!("prime is {prime}, idx is {idx}");
+        let block_size = usize::max(BLOCK_SIZE, factor_base.last().unwrap() * 2);
 
-        while idx < block.len() {
-            dbg!(block[idx].accumulator.rem_short(prime).to_varsize());
-            dbg!(idx);
-            let mut exponent = 0;
-            loop {
-                let (d, r) = block[idx].accumulator.divmod(prime);
-                if r != NumberType::from_u32(0) {
-                    break;
-                }
-                exponent += 1;
-                block[idx].accumulator = d;
-            }
-
-            dbg!(exponent);
-
-            block[idx].factorization.push((prime, exponent));
-            idx += prime;
+        BlockSieve {
+            n,
+            factor_base,
+            roots,
+            block_size,
+            next_block: n.sqrt().add_usize(1),
         }
     }
 
-    block
-        .into_iter()
-        .filter_map(|item| {
-            if &item.accumulator != NumberType::one() {
-                return None;
-            }
+    pub fn run(&mut self, total_numbers: usize) -> SmoothiesVec {
+        let mut result = vec![];
+
+        let total_numbers = total_numbers as isize;
+
+        let mut numbers_to_find = total_numbers;
+
+        let mut last_time = Instant::now();
+
+        while numbers_to_find > 0 {
+            let mut produced_items = self.search_block();
 
             #[cfg(feature = "verbose")]
-            println!("found number {}", item.original_number.to_varsize());
+            println!("block produced {} items", produced_items.len());
 
-            Some(SmoothNumber {
-                number: item.original_number,
-                divisors: item.factorization,
-            })
+            self.next_block = self
+                .next_block
+                .wrapping_add(&NumberType::convert_usize(self.block_size));
+
+            numbers_to_find -= produced_items.len() as isize;
+
+            result.append(&mut produced_items);
+
+            let now = Instant::now();
+
+            if (now - last_time).as_secs() >= 5 {
+                last_time = now;
+                println!(
+                    "done {:.1}%",
+                    (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+                );
+            }
+        }
+        result
+    }
+
+    fn search_block(&mut self) -> Vec<SmoothNumber<NumberType>> {
+        #[cfg(feature = "verbose")]
+        println!(
+            "working with block size {} starting at {}",
+            self.block_size,
+            self.next_block.to_varsize()
+        );
+
+        let mut start = self.next_block;
+
+        let mut block = repeat_with(|| {
+            let number = start;
+            start = start.wrapping_add(NumberType::one());
+
+            BlockEntry {
+                original_number: number,
+                accumulator: number.modpow2(&self.n),
+                factorization: Vec::with_capacity(16),
+            }
         })
-        .collect_vec()
+        .take(self.block_size)
+        .collect_vec();
+
+        'primeiter: for (i, &prime) in self.factor_base.iter().enumerate() {
+            //find start of sequence by trying different items
+
+            let Some((s1, s2)) = self.roots[i] else{
+                continue;
+            };
+
+            'rootiter: for root in [s1, s2] {
+                //find closest value
+                let mut idx = 0;
+                loop {
+                    let (d, r) = block[idx].original_number.divmod(prime);
+                    if r == NumberType::convert_usize(root) {
+                        break;
+                    }
+                    idx += 1;
+                    if idx >= block.len() {
+                        continue 'rootiter;
+                    }
+                }
+
+                #[cfg(feature = "verbose")]
+                println!("prime is {prime}, root is {root}, idx is {idx}");
+
+                while idx < block.len() {
+                    //dbg!(block[idx].accumulator.rem_short(prime).to_varsize());
+                    //dbg!(idx);
+                    let mut exponent = 0;
+                    loop {
+                        let (d, r) = block[idx].accumulator.divmod(prime);
+                        if r != NumberType::from_u32(0) {
+                            break;
+                        }
+                        exponent += 1;
+                        block[idx].accumulator = d;
+                    }
+
+                    //dbg!(exponent);
+
+                    block[idx].factorization.push((prime, exponent));
+                    idx += prime;
+                }
+            }
+        }
+
+        block
+            .into_iter()
+            .filter_map(|item| {
+                if &item.accumulator != NumberType::one() {
+                    return None;
+                }
+
+                #[cfg(feature = "verbose")]
+                println!("found number {}", item.original_number.to_varsize());
+
+                Some(SmoothNumber {
+                    number: item.original_number,
+                    divisors: item.factorization,
+                })
+            })
+            .collect_vec()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Rem;
+
+    use num_bigint::BigInt;
+
+    #[test]
+    fn negative_power_building() {
+        let n = BigInt::from(-5);
+        assert_eq!(
+            n.modpow(&BigInt::from(1), &BigInt::from(8)),
+            BigInt::from(3)
+        );
+    }
 }

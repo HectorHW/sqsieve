@@ -9,7 +9,7 @@ use crate::{
     factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
     number_type::NumberType,
     numbers::{build_factor_base, small_eratosphenes},
-    sieve::{block_division_sieve, compute_b_limit, TestDivisionSieve},
+    sieve::{compute_b_limit, BlockSieve, TestDivisionSieve},
     solver::{produce_solution, CongruenceSystem},
 };
 
@@ -70,13 +70,18 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
 
     println!("primes until bound: {}", primes.len());
 
-    let factor_base = build_factor_base(primes, n);
+    let mut factor_base = build_factor_base(primes, n);
 
     println!("built factor base of size {}", factor_base.len(),);
 
     if factor_base.len() < 2 {
         println!("this is too small");
         return None;
+    }
+
+    if factor_base.len() >= 250 {
+        println!("factor base is too huge, truncating");
+        factor_base.truncate(250);
     }
 
     #[cfg(feature = "verbose")]
@@ -88,7 +93,7 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
 
     let mut table = vec![];
 
-    let mut sieve = TestDivisionSieve::new(*n, factor_base.clone());
+    let mut sieve = BlockSieve::new(*n, factor_base.clone());
 
     for _ in 0..NUM_ATTEMPTS {
         let sieving_limit = usize::max(
