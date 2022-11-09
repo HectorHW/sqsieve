@@ -1,7 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
-    ops::AddAssign,
+    ops::{AddAssign, Index},
 };
 
 use itertools::Itertools;
@@ -21,7 +21,7 @@ impl SparseRow {
         let mut i1 = self.items.iter().cloned().peekable();
         let mut i2 = other.items.iter().cloned().peekable();
 
-        while i2.peek().is_some() || i2.peek().is_some() {
+        while i1.peek().is_some() || i2.peek().is_some() {
             match (i1.peek(), i2.peek()) {
                 (Some(&item), None) => {
                     new_buf.push(item);
@@ -146,7 +146,7 @@ impl CongruenceSystem {
 
     pub fn with_labels(
         rows: &SparseCountMap,
-        x_labels: HashSet<usize>,
+        x_labels: Vec<usize>,
         row_labels: Vec<usize>,
     ) -> Self {
         assert_eq!(rows.len(), row_labels.len());
@@ -156,14 +156,10 @@ impl CongruenceSystem {
             .map(|item| SparseRow::from(&item[..]))
             .collect_vec();
 
-        let mut labels = x_labels.into_iter().collect_vec();
-
-        labels.sort_unstable();
-
         Self {
             rows,
-            x_labels: labels,
             row_labels,
+            x_labels,
         }
     }
 
@@ -247,6 +243,50 @@ impl CongruenceSystem {
             x_labels: new_x,
         }
     }
+
+    /// fast pivoting algorithm. Matrix is expected to have a column for each smooth number
+    pub fn fast_pivot(&mut self) -> Vec<Vec<usize>> {
+        assert!(self.x_labels.len() > self.rows.len());
+        let mut marking = HashSet::new();
+        let mut pivots = HashMap::new();
+
+        for row_number in 0..self.rows.len() {
+            let Some(i) = self.rows[row_number].least_term() else {
+                continue;
+            };
+            pivots.insert(row_number, i);
+            marking.insert(i);
+
+            for k in 0..self.rows.len() {
+                if k == row_number {
+                    continue;
+                }
+
+                if self.rows[k].contains(i) {
+                    let right_side = self.rows[row_number].clone();
+                    self.rows[k].add_inpace(&right_side);
+                }
+            }
+        }
+
+        let mut result = vec![];
+
+        for &number in &self.x_labels {
+            if marking.contains(&number) {
+                continue;
+            }
+
+            let mut subresult = vec![number];
+            for row_id in 0..self.rows.len() {
+                if self.rows[row_id].contains(number) {
+                    subresult.push(pivots[&row_id]);
+                }
+            }
+            result.push(subresult);
+        }
+
+        result
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -314,7 +354,13 @@ pub fn produce_solution(system: &CongruenceSystem) -> Solution {
         }
     }
 
-    let dependencies = system.rows.iter().rev().filter(|row| row.items.len() >= 2);
+    let dependencies = system.rows.iter().rev().filter(|row| {
+        row.items.len() >= 2 && {
+            let items = row.items.iter().cloned().collect::<HashSet<usize>>();
+            let deps = items.difference(&constants);
+            deps.count() > 1
+        }
+    });
 
     let mut dependant_vars = HashSet::new();
     let mut free_variables = HashSet::new();
@@ -421,7 +467,7 @@ mod tests {
         // 0 0 1 0 0
         let mut system = CongruenceSystem::with_labels(
             &vec![vec![(0, 1), (1, 1)], vec![(2, 1)]],
-            set![0usize, 1, 2, 3, 4],
+            vec![0usize, 1, 2, 3, 4],
             vec![0usize, 1],
         );
 
@@ -439,6 +485,40 @@ mod tests {
                     factors: set![1]
                 }]
             }
+        )
+    }
+
+    trait Unorder {
+        fn unorder(self) -> HashSet<usize>;
+    }
+
+    impl Unorder for Vec<usize> {
+        fn unorder(self) -> HashSet<usize> {
+            self.into_iter().collect()
+        }
+    }
+
+    #[test]
+    fn should_solve_with_fast_pivot() {
+        let mut system = CongruenceSystem::with_labels(
+            &vec![
+                vec![(0, 1), (1, 1)],
+                vec![(0, 1), (1, 1), (2, 1)],
+                vec![(2, 1), (3, 1)],
+                vec![(1, 1), (2, 1), (4, 1)],
+            ],
+            vec![0, 1, 2, 3, 4],
+            vec![2, 3, 5, 7],
+        );
+
+        println!("{}", system.print_as_dense());
+
+        let result = system.fast_pivot();
+        println!("{:?}", result);
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result.into_iter().next().unwrap().unorder(),
+            vec![0, 1, 4].unorder()
         )
     }
 }
