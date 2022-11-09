@@ -17,6 +17,7 @@ rand = "0.8.5"
 [features]
 verbose = []
 test-small = []
+multistage = []
 
 #[profile.release]
 #debug = true
