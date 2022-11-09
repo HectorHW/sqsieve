@@ -30,7 +30,7 @@ pub fn small_eratosphenes(upper_limit: usize) -> Vec<usize> {
     result
 }
 
-fn legendre(a: BigUint, p: BigUint) -> isize {
+pub fn legendre(a: BigUint, p: BigUint) -> isize {
     use num_traits::Zero;
     let power = (p.clone() - BigUint::from(1usize)) / BigUint::from(2usize);
 
@@ -46,43 +46,93 @@ fn legendre(a: BigUint, p: BigUint) -> isize {
     1
 }
 
+pub fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+fn upcast_modpow(x: usize, e: usize, m: usize) -> usize {
+    BigUint::modpow(&BigUint::from(x), &BigUint::from(e), &BigUint::from(m))
+        .to_u64_digits()
+        .pop()
+        .unwrap_or_default() as usize
+}
+
+fn compute_order(p: usize, b: usize) -> Option<usize> {
+    if gcd(p, b) != 1 {
+        return None;
+    }
+
+    let mut k = 3;
+    loop {
+        if upcast_modpow(b, k, p) == 1 {
+            return Some(k);
+        }
+        k += 1;
+    }
+}
+
+/// finds x from x^2 === n (mod p)
+pub fn tonelli_shanks(n: usize, p: usize) -> Option<usize> {
+    if gcd(n, p) != 1 || legendre(BigUint::from(n), BigUint::from(p)) == -1 {
+        return None;
+    }
+
+    let mut q = p - 1;
+    let mut s = 0;
+    while q % 2 == 0 {
+        s += 1;
+        q /= 2;
+    }
+
+    let mut z_value = 2;
+    loop {
+        if upcast_modpow(z_value, (p - 1) / 2, p) == p - 1 {
+            break;
+        }
+        z_value += 1;
+    }
+
+    let mut M = s;
+    let mut c = upcast_modpow(z_value, q, p);
+    let mut t = upcast_modpow(n, q, p);
+
+    let mut R = upcast_modpow(n, (q + 1) / 2, p);
+
+    loop {
+        if t == 0 {
+            return Some(0);
+        }
+
+        if t == 1 {
+            return Some(R);
+        }
+
+        let mut i = 1;
+        while i < M {
+            if upcast_modpow(t, 2usize.pow(i), p) == 1 {
+                break;
+            }
+
+            i += 1;
+        }
+
+        let b = upcast_modpow(c, 2usize.pow(M - i - 1), p);
+
+        M = i;
+        c = upcast_modpow(b, 2, p);
+        t = t * b * b % p;
+        R = R * b % p;
+    }
+}
+
 pub fn build_factor_base(primes: Vec<usize>, n: &NumberType) -> Vec<usize> {
     primes
         .into_iter()
         .filter(|&prime| legendre(n.to_varsize(), BigUint::from(prime)) == 1)
-        .collect_vec()
-}
-
-pub fn small_smooth(upper_limit: usize, b_value: usize) -> Vec<usize> {
-    // same algorithm as above but instead we divide numbers
-    assert!(
-        upper_limit.checked_add(1).is_some(),
-        "upper limit overflows usize"
-    );
-    let mut candidates = (0..=upper_limit).into_iter().collect_vec();
-    for number in 2..=b_value {
-        if candidates[number] == 1 {
-            continue;
-        }
-
-        candidates[number] = 1;
-
-        if let Some(lower_bound) = number.checked_mul(2) {
-            let mut multiple = lower_bound;
-            while multiple <= upper_limit {
-                while candidates[multiple] % number == 0 {
-                    candidates[multiple] /= number;
-                }
-
-                multiple += number;
-            }
-        }
-    }
-    candidates
-        .into_iter()
-        .enumerate()
-        .skip(1) // do not include 0
-        .filter_map(|(i, n)| if n == 1 { Some(i) } else { None })
         .collect_vec()
 }
 
@@ -117,5 +167,28 @@ pub fn factor_smooth(n: &NumberType, prime_table: &[usize]) -> Option<DenseMulti
         Some(result)
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use num_bigint::BigUint;
+
+    use super::tonelli_shanks;
+
+    //upcast modpow relies on that
+    #[test]
+    fn bigint_returns_nothing_in_state_of_zero() {
+        assert_eq!(BigUint::from(0usize).to_u64_digits(), vec![])
+    }
+
+    #[test]
+    fn should_compute_value() {
+        assert_eq!(tonelli_shanks(3, 13), Some(9))
+    }
+
+    #[test]
+    fn should_solve_example() {
+        assert_eq!(tonelli_shanks(5, 41), Some(28))
     }
 }
