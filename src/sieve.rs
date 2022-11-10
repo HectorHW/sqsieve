@@ -1,6 +1,6 @@
 use std::{error::Error, iter::repeat_with, ops::Rem, time::Instant};
 
-use crypto_bigint::Zero;
+use crypto_bigint::{subtle::ConditionallySelectable, Zero};
 use itertools::Itertools;
 use num_bigint::{BigInt, BigUint, ToBigInt};
 use num_traits::{Pow, ToPrimitive};
@@ -106,6 +106,9 @@ impl BlockSieve {
         let roots = factor_base
             .iter()
             .map(|&factor| {
+                if factor == 2 {
+                    return None;
+                }
                 let n = n.to_varsize().rem(factor).to_u64().unwrap() as usize;
 
                 let Some(s1) = tonelli_shanks(n, factor) else{
@@ -118,7 +121,10 @@ impl BlockSieve {
             .collect_vec();
 
         #[cfg(feature = "verbose")]
-        println!("roots: {roots:?}");
+        {
+            println!("factor base: {factor_base:?}");
+            println!("roots: {roots:?}");
+        }
 
         let block_size = usize::max(BLOCK_SIZE, factor_base.last().unwrap() * 2);
 
@@ -189,6 +195,28 @@ impl BlockSieve {
         })
         .take(self.block_size)
         .collect_vec();
+
+        //sieve for 2 manually, quick bit trick
+        if self.factor_base[0] == 2 {
+            let mut idx: usize = 0;
+
+            if block[0].accumulator.bit_vartime(0) == 1 {
+                idx += 1;
+            }
+
+            while idx < block.len() {
+                let mut exp = 0;
+                while block[idx].accumulator.bit_vartime(exp) == 0 {
+                    exp += 1;
+                }
+                debug_assert!(exp > 0);
+
+                block[idx].accumulator >>= exp;
+                block[idx].factorization.push((2, exp));
+
+                idx += 2;
+            }
+        }
 
         'primeiter: for (i, &prime) in self.factor_base.iter().enumerate() {
             //find start of sequence by trying different items

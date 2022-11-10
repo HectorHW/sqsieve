@@ -132,7 +132,7 @@ pub fn tonelli_shanks(n: usize, p: usize) -> Option<usize> {
 pub fn build_factor_base(primes: Vec<usize>, n: &NumberType) -> Vec<usize> {
     primes
         .into_iter()
-        .filter(|&prime| legendre(n.to_varsize(), BigUint::from(prime)) == 1)
+        .filter(|&prime| prime == 2 || legendre(n.to_varsize(), BigUint::from(prime)) == 1)
         .collect_vec()
 }
 
