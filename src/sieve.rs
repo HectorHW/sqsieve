@@ -374,7 +374,7 @@ impl<NT: NumberOps> LogSieve<NT> {
         let block_size = NT::convert_usize(self.block_size);
 
         while numbers_to_find > 0 {
-            let mut produced_items = self.search_block();
+            let mut produced_items = self.search_block(self.next_block, self.block_size);
 
             #[cfg(feature = "verbose")]
             println!("block produced {} items", produced_items.len());
@@ -398,15 +398,13 @@ impl<NT: NumberOps> LogSieve<NT> {
         result
     }
 
-    fn search_block(&mut self) -> Vec<SmoothNumber<NT>> {
+    fn search_block(&self, mut start: NT, size: usize) -> Vec<SmoothNumber<NT>> {
         #[cfg(feature = "verbose")]
         println!(
             "working with block size {} starting at {}",
-            self.block_size,
+            size,
             self.next_block.to_varsize()
         );
-
-        let mut start = self.next_block;
 
         let (original_numbers, mut accumulators): (Vec<NT>, Vec<NT>) = repeat_with(|| {
             let number = start;
@@ -414,10 +412,10 @@ impl<NT: NumberOps> LogSieve<NT> {
             start = start.wrapping_add(NT::one());
             (number, accumulator)
         })
-        .take(self.block_size)
+        .take(size)
         .unzip();
 
-        let mut logs = vec![0f64; self.block_size];
+        let mut logs = vec![0f64; size];
 
         let acc2 = accumulators.clone();
 
@@ -509,6 +507,64 @@ impl<NT: NumberOps> LogSieve<NT> {
                 Some(SmoothNumber { number, divisors })
             })
             .collect_vec()
+    }
+
+    pub fn run_parallel(&mut self, total_numbers: usize) -> Vec<SmoothNumber<NT>> {
+        use rayon::prelude::*;
+        println!("running parallel log sieve");
+        let mut result = vec![];
+
+        let total_numbers = total_numbers as isize;
+
+        let mut numbers_to_find = total_numbers;
+
+        let mut last_time = Instant::now();
+
+        use std::env;
+
+        let threads = env::var("THREADS")
+            .map(|n| n.parse::<usize>().expect("failed to parse thread count"))
+            .unwrap_or(1);
+        let block_size = self.factor_base.last().cloned().unwrap() * 2;
+
+        println!("block size is {block_size}, {threads} threads");
+
+        while numbers_to_find > 0 {
+            let jobs = repeat_with(|| {
+                let block_start = self.next_block;
+
+                self.next_block = self.next_block.add_usize(block_size);
+
+                (block_start, block_size)
+            })
+            .take(threads)
+            .collect_vec();
+
+            let items = jobs
+                .into_par_iter()
+                .map(|(start, size)| self.search_block(start, size))
+                .collect::<Vec<_>>();
+
+            #[cfg(feature = "verbose")]
+            println!("block produced {} items", produced_items.len());
+
+            numbers_to_find -= items.iter().map(|v| v.len()).sum::<usize>() as isize;
+
+            for mut item in items {
+                result.append(&mut item);
+            }
+
+            let now = Instant::now();
+
+            if (now - last_time).as_secs() >= 5 {
+                last_time = now;
+                println!(
+                    "done {:.1}%",
+                    (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+                );
+            }
+        }
+        result
     }
 }
 

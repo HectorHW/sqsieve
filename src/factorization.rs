@@ -99,7 +99,7 @@ fn run_factor<NT: NumberOps>(n: &NT, prime_bound: usize) -> Option<(BigUint, Big
 
         println!("need about {sieving_limit} numbers");
 
-        let mut additional_table = sieve.run(sieving_limit.saturating_sub(table.len()));
+        let mut additional_table = sieve.run_parallel(sieving_limit.saturating_sub(table.len()));
 
         table.append(&mut additional_table);
 
