@@ -18,6 +18,7 @@ rand = "0.8.5"
 verbose = []
 test-small = []
 multistage = []
+truncate = []
 
-#[profile.release]
-#debug = true
+[profile.release]
+debug = true

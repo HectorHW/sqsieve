@@ -1,13 +1,12 @@
-use std::{error::Error, iter::repeat_with, ops::Rem, time::Instant};
+use std::{iter::repeat_with, ops::Rem, time::Instant};
 
-use crypto_bigint::{subtle::ConditionallySelectable, Zero};
 use itertools::Itertools;
-use num_bigint::{BigInt, BigUint, ToBigInt};
+
 use num_traits::{Pow, ToPrimitive};
 
 use crate::{
     number_type::{NumberOps, NumberType},
-    numbers::{factor_smooth, tonelli_shanks},
+    numbers::{tonelli_shanks, trial_divide},
 };
 
 pub fn compute_b_limit(n: &NumberType) -> usize {
@@ -54,7 +53,7 @@ impl TestDivisionSieve {
         while numbers_to_find > 0 {
             let sq_mod = self.next_number.clone().modpow2(&self.n);
 
-            if let Some(mapping) = factor_smooth(&sq_mod, &self.factor_base) {
+            if let Some(mapping) = trial_divide(&sq_mod, &self.factor_base) {
                 #[cfg(feature = "verbose")]
                 println!(
                     "found number {}^2 === {}",
@@ -126,7 +125,7 @@ impl BlockSieve {
             println!("roots: {roots:?}");
         }
 
-        let block_size = usize::max(BLOCK_SIZE, factor_base.last().unwrap() * 2);
+        let block_size = usize::max(BLOCK_SIZE, factor_base.last().unwrap() * 5);
 
         BlockSieve {
             n,
@@ -146,15 +145,19 @@ impl BlockSieve {
 
         let mut last_time = Instant::now();
 
+        let long_block_size = NumberType::convert_usize(self.block_size);
+
         while numbers_to_find > 0 {
             let mut produced_items = self.search_block();
 
             #[cfg(feature = "verbose")]
-            println!("block produced {} items", produced_items.len());
+            println!(
+                "block of size {} produced {} items",
+                self.block_size,
+                produced_items.len()
+            );
 
-            self.next_block = self
-                .next_block
-                .wrapping_add(&NumberType::convert_usize(self.block_size));
+            self.next_block = self.next_block.wrapping_add(&long_block_size);
 
             numbers_to_find -= produced_items.len() as isize;
 
@@ -218,26 +221,37 @@ impl BlockSieve {
             }
         }
 
-        'primeiter: for (i, &prime) in self.factor_base.iter().enumerate() {
+        for (i, &prime) in self.factor_base.iter().enumerate() {
             //find start of sequence by trying different items
 
             let Some((s1, s2)) = self.roots[i] else{
                 continue;
             };
 
-            'rootiter: for root in [s1, s2] {
+            for root in [s1, s2] {
                 //find closest value
-                let mut idx = 0;
-                loop {
-                    let (d, r) = block[idx].original_number.divmod(prime);
-                    if r == NumberType::convert_usize(root) {
-                        break;
-                    }
-                    idx += 1;
-                    if idx >= block.len() {
-                        continue 'rootiter;
-                    }
+                let mut idx;
+
+                let long_root = NumberType::convert_usize(root);
+                let long_prime = NumberType::convert_usize(prime);
+
+                let mut closest_element = (block[0].original_number.wrapping_sub(&long_root))
+                    .wrapping_div(&long_prime)
+                    .wrapping_mul(&long_prime)
+                    .wrapping_add(&long_root);
+
+                if closest_element < block[0].original_number {
+                    closest_element = closest_element.wrapping_add(&long_prime);
                 }
+
+                idx = closest_element
+                    .wrapping_sub(&block[0].original_number)
+                    .to_usize();
+
+                debug_assert!({
+                    let (_, r) = block[idx].original_number.divmod(prime);
+                    r == NumberType::convert_usize(root)
+                });
 
                 #[cfg(feature = "verbose")]
                 println!("prime is {prime}, root is {root}, idx is {idx}");
@@ -291,7 +305,7 @@ pub struct LogSieve {
     log_treshold: f64,
 }
 
-const LOGSIEVE_BLOCK_SIZE: usize = 15000;
+const LOGSIEVE_BLOCK_SIZE: usize = 60_000;
 
 impl LogSieve {
     //initalization is the same, what differs is the search algorithm
@@ -313,7 +327,15 @@ impl LogSieve {
         #[cfg(feature = "verbose")]
         println!("roots: {roots:?}");
 
-        let block_size = usize::max(LOGSIEVE_BLOCK_SIZE, factor_base.last().unwrap() * 2);
+        let block_size = usize::max(
+            usize::min(LOGSIEVE_BLOCK_SIZE, factor_base.last().unwrap() * 5),
+            factor_base.last().unwrap() * 2,
+        );
+
+        let n_f = n.to_varsize().to_f64().unwrap();
+
+        let treshold = (block_size as f64).log2() + n_f.log2() * 0.5
+            - Self::chose_t(n_f.log10()) * (*factor_base.last().unwrap() as f64).log2();
 
         LogSieve {
             n,
@@ -321,11 +343,26 @@ impl LogSieve {
             roots,
             block_size,
             next_block: n.sqrt().add_usize(1),
-            log_treshold: n.to_varsize().to_f64().unwrap().log2() + (block_size as f64).log2(),
+            log_treshold: treshold,
         }
     }
 
+    fn chose_t(number_size: f64) -> f64 {
+        if number_size <= 30.0 {
+            return 1.5;
+        }
+        if number_size <= 45.0 {
+            return 2.0;
+        }
+        if number_size <= 66.0 {
+            return 2.6;
+        }
+
+        3.2
+    }
+
     pub fn run(&mut self, total_numbers: usize) -> SmoothiesVec {
+        println!("running log sieve with block size of {}", self.block_size);
         let mut result = vec![];
 
         let total_numbers = total_numbers as isize;
@@ -371,42 +408,75 @@ impl LogSieve {
 
         let mut start = self.next_block;
 
-        let (original_numbers, mut logs): (Vec<NumberType>, Vec<f64>) = repeat_with(|| {
-            let number = start;
-            start = start.wrapping_add(NumberType::one());
+        let (original_numbers, mut accumulators): (Vec<NumberType>, Vec<NumberType>) =
+            repeat_with(|| {
+                let number = start;
+                let accumulator = number.modpow2(&self.n);
+                start = start.wrapping_add(NumberType::one());
+                (number, accumulator)
+            })
+            .take(self.block_size)
+            .unzip();
 
-            let accumulator_log = number
-                .modpow2(&self.n)
-                .to_varsize()
-                .to_f64()
-                .unwrap()
-                .log2();
+        let mut logs = vec![0f64; self.block_size];
 
-            (number, accumulator_log)
-        })
-        .take(self.block_size)
-        .unzip();
+        let acc2 = accumulators.clone();
 
-        'primeiter: for (i, &prime) in self.factor_base.iter().enumerate() {
+        //sieve for 2 manually, quick bit trick
+        if self.factor_base[0] == 2 {
+            let mut idx: usize = 0;
+
+            let n0 = accumulators[0];
+
+            if n0.bit_vartime(0) == 1 {
+                idx += 1;
+            }
+
+            while idx < logs.len() {
+                let mut exp = 0;
+                while accumulators[idx].bit_vartime(exp) == 0 {
+                    exp += 1;
+                }
+                debug_assert!(exp > 0);
+
+                logs[idx] += exp as f64;
+                accumulators[idx] >>= exp;
+
+                idx += 2;
+            }
+        }
+
+        for (i, &prime) in self.factor_base.iter().enumerate() {
             //find start of sequence by trying different items
 
             let Some((s1, s2)) = self.roots[i] else{
                 continue;
             };
 
-            'rootiter: for root in [s1, s2] {
+            for root in [s1, s2] {
                 //find closest value
                 let mut idx = 0;
-                loop {
-                    let (d, r) = original_numbers[idx].divmod(prime);
-                    if r == NumberType::convert_usize(root) {
-                        break;
-                    }
-                    idx += 1;
-                    if idx >= original_numbers.len() {
-                        continue 'rootiter;
-                    }
+
+                let long_root = NumberType::convert_usize(root);
+                let long_prime = NumberType::convert_usize(prime);
+
+                let mut closest_element = (original_numbers[idx].wrapping_sub(&long_root))
+                    .wrapping_div(&long_prime)
+                    .wrapping_mul(&long_prime)
+                    .wrapping_add(&long_root);
+
+                if closest_element < original_numbers[0] {
+                    closest_element = closest_element.wrapping_add(&long_prime);
                 }
+
+                idx = closest_element
+                    .wrapping_sub(&original_numbers[0])
+                    .to_usize();
+
+                debug_assert!({
+                    let (_, r) = original_numbers[idx].divmod(prime);
+                    r == NumberType::convert_usize(root)
+                });
 
                 let root_log_value = (prime as f64).log2();
 
@@ -414,32 +484,30 @@ impl LogSieve {
                 println!("prime is {prime}, root is {root}, idx is {idx}");
 
                 while idx < original_numbers.len() {
-                    logs[idx] -= root_log_value;
+                    logs[idx] += root_log_value;
 
                     idx += prime;
                 }
             }
         }
 
-        let mut buf = logs.clone();
-
-        let dyn_treshold = *buf
-            .select_nth_unstable_by(self.block_size / 1000, |a, b| a.partial_cmp(b).unwrap())
-            .1;
-
         original_numbers
             .into_iter()
             .zip(logs.into_iter())
-            .filter_map(|(n, ln)| if ln <= dyn_treshold { Some(n) } else { None })
-            .filter_map(|n| {
-                let Some(divisors) = factor_smooth(&n, &self.factor_base) else {
+            .zip(acc2.into_iter())
+            .filter_map(|((n, ln), acc)| {
+                if ln >= self.log_treshold {
+                    Some((n, acc))
+                } else {
+                    None
+                }
+            })
+            .filter_map(|(number, acc)| {
+                let Some(divisors) = trial_divide(&acc, &self.factor_base) else {
                 return None;
             };
 
-                Some(SmoothNumber {
-                    number: n,
-                    divisors,
-                })
+                Some(SmoothNumber { number, divisors })
             })
             .collect_vec()
     }
@@ -447,7 +515,6 @@ impl LogSieve {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Rem;
 
     use num_bigint::BigInt;
 

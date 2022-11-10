@@ -22,6 +22,8 @@ pub trait NumberOps: Sized {
     fn add_usize(self, other: usize) -> Self;
 
     fn to_varsize(self) -> BigUint;
+
+    fn to_usize(self) -> usize;
 }
 
 pub type NumberType = U512;
@@ -88,5 +90,23 @@ impl NumberOps for NumberType {
         let modulo = U1024::from_words(buf);
 
         self.square().wrapping_rem(&modulo).split().1
+    }
+
+    fn to_usize(self) -> usize {
+        self.to_words()[0] as usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NumberOps, NumberType};
+
+    #[test]
+    fn number_uses_little_endian() {
+        let original_number = 153;
+        assert_eq!(
+            NumberType::convert_usize(original_number).to_usize(),
+            original_number
+        )
     }
 }

@@ -79,6 +79,7 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
         return None;
     }
 
+    #[cfg(feature = "truncate")]
     if factor_base.len() >= 250 {
         println!("factor base is too huge, truncating");
         factor_base.truncate(250);
@@ -93,7 +94,7 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
 
     let mut table = vec![];
 
-    let mut sieve = BlockSieve::new(*n, factor_base.clone());
+    let mut sieve = LogSieve::new(*n, factor_base.clone());
 
     for _ in 0..NUM_ATTEMPTS {
         let sieving_limit = usize::max(
@@ -181,7 +182,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     //let prime_bound = compute_b_limit(&n);
     //let prime_bound = compute_b_limit(&n).min(10usize.pow(3));
 
-    let limit = compute_b_limit(&n);
+    let limit = compute_b_limit(&n).min(10_000);
 
     let mut prime_bound = 100;
 

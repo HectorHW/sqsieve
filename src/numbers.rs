@@ -138,7 +138,7 @@ pub fn build_factor_base(primes: Vec<usize>, n: &NumberType) -> Vec<usize> {
 
 pub type DenseMultiplierMap = Vec<(usize, usize)>;
 
-pub fn factor_smooth(n: &NumberType, prime_table: &[usize]) -> Option<DenseMultiplierMap> {
+pub fn trial_divide(n: &NumberType, prime_table: &[usize]) -> Option<DenseMultiplierMap> {
     let mut result = vec![];
 
     let mut n = n.clone();
