@@ -395,6 +395,12 @@ impl<NT: NumberOps> LogSieve<NT> {
                 );
             }
         }
+
+        println!(
+            "done {:.1}%",
+            (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+        );
+
         result
     }
 
@@ -564,6 +570,12 @@ impl<NT: NumberOps> LogSieve<NT> {
                 );
             }
         }
+
+        println!(
+            "done {:.1}%",
+            (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+        );
+
         result
     }
 }
