@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::{iter::repeat_with, ops::Rem, time::Instant};
 
 use itertools::Itertools;
@@ -61,7 +62,7 @@ impl<NT: NumberOps> TestDivisionSieve<NT> {
                     sq_mod.to_varsize()
                 );
                 result.push(SmoothNumber {
-                    number: self.next_number.clone(),
+                    number: self.next_number,
                     divisors: mapping,
                 });
                 numbers_to_find -= 1;

@@ -9,11 +9,6 @@ use num_bigint::BigUint;
 use num_traits::FromPrimitive;
 use rand::{thread_rng, Rng};
 
-pub fn is_square(number: usize) -> bool {
-    let t = ((number as f64).sqrt() + 0.5).floor() as usize;
-    t * t == number
-}
-
 pub fn is_big_square(number: &BigUint) -> bool {
     let t = number.sqrt();
     &(t.clone() * t) == number

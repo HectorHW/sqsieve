@@ -1,4 +1,4 @@
-use std::{env::args, error::Error, iter::repeat, str::FromStr};
+use std::{iter::repeat, str::FromStr};
 
 use crate::factor_building::find_factors_from_pivots;
 use crate::number_type::NumberOps;
@@ -6,13 +6,12 @@ use crate::sieve::SmoothNumber;
 use crypto_bigint::UInt;
 use itertools::Itertools;
 use num_bigint::BigUint;
-use num_integer::Roots;
 use num_traits::ToPrimitive;
 
 use crate::{
     factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
     numbers::{build_factor_base, small_eratosphenes},
-    sieve::{compute_b_limit, BlockSieve, LogSieve, TestDivisionSieve},
+    sieve::{compute_b_limit, LogSieve},
     solver::{produce_solution, CongruenceSystem},
 };
 fn gaussian_multistage<NT: NumberOps>(
@@ -98,12 +97,19 @@ fn run_factor<NT: NumberOps>(n: &NT, prime_bound: usize) -> Option<(BigUint, Big
         );
 
         println!("need about {sieving_limit} numbers");
+        if table.len() < sieving_limit {
+            let mut additional_table =
+                sieve.run_parallel(sieving_limit.saturating_sub(table.len()));
 
-        let mut additional_table = sieve.run_parallel(sieving_limit.saturating_sub(table.len()));
+            table.append(&mut additional_table);
 
-        table.append(&mut additional_table);
-
-        println!("done collecting, building solution");
+            println!("done collecting, building solution");
+        } else {
+            println!(
+                "already have that many numbers (need {sieving_limit}, have {})",
+                table.len()
+            )
+        }
 
         #[cfg(feature = "verbose")]
         println!("{:?}", table);
@@ -162,6 +168,7 @@ where
 
     let limit = compute_b_limit(&n).min(10_000);
 
+    #[allow(unused_assignments)]
     let mut prime_bound = 100;
 
     #[cfg(feature = "test-small")]
@@ -193,7 +200,7 @@ where
         return Ok(vec![a, b]);
     }
 
-    Err("could not factorize".to_string())
+    Err("could not factorize. Maybe it's a prime after all?".to_string())
 }
 
 pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {

@@ -1,6 +1,5 @@
 use crate::number_type::NumberOps;
 
-use crypto_bigint::Zero;
 use itertools::Itertools;
 use num_bigint::BigUint;
 
@@ -61,21 +60,8 @@ fn upcast_modpow(x: usize, e: usize, m: usize) -> usize {
         .unwrap_or_default() as usize
 }
 
-fn compute_order(p: usize, b: usize) -> Option<usize> {
-    if gcd(p, b) != 1 {
-        return None;
-    }
-
-    let mut k = 3;
-    loop {
-        if upcast_modpow(b, k, p) == 1 {
-            return Some(k);
-        }
-        k += 1;
-    }
-}
-
 /// finds x from x^2 === n (mod p)
+#[allow(non_snake_case)]
 pub fn tonelli_shanks(n: usize, p: usize) -> Option<usize> {
     if gcd(n, p) != 1 || legendre(BigUint::from(n), BigUint::from(p)) == -1 {
         return None;
@@ -141,7 +127,7 @@ pub type DenseMultiplierMap = Vec<(usize, usize)>;
 pub fn trial_divide<NT: NumberOps>(n: &NT, prime_table: &[usize]) -> Option<DenseMultiplierMap> {
     let mut result = vec![];
 
-    let mut n = n.clone();
+    let mut n = *n;
 
     'outer: for &prime in prime_table {
         loop {
