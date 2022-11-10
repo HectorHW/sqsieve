@@ -1,21 +1,8 @@
 #![feature(associated_type_defaults)]
 
-use std::{env::args, error::Error, iter::repeat, str::FromStr};
+use std::env::args;
 
-use crypto_bigint::UInt;
-use factor_building::find_factors_from_pivots;
 use factorization::factorize;
-use itertools::Itertools;
-use num_bigint::BigUint;
-use number_type::NumberOps;
-use sieve::SmoothNumber;
-
-use crate::{
-    factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
-    numbers::{build_factor_base, small_eratosphenes},
-    sieve::{compute_b_limit, BlockSieve, LogSieve, TestDivisionSieve},
-    solver::{produce_solution, CongruenceSystem},
-};
 
 mod number_type;
 mod numbers;
