@@ -207,7 +207,7 @@ pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {
 
     let bytes = n.to_bytes_be();
 
-    if bytes.len() > 64 {
+    if bytes.len() >= 64 {
         return Err("number is too big".into());
     }
 
