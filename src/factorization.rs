@@ -6,6 +6,8 @@ use crate::sieve::SmoothNumber;
 use crypto_bigint::UInt;
 use itertools::Itertools;
 use num_bigint::BigUint;
+use num_integer::Roots;
+use num_traits::ToPrimitive;
 
 use crate::{
     factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
@@ -142,9 +144,7 @@ fn run_factor<NT: NumberOps>(n: &NT, prime_bound: usize) -> Option<(BigUint, Big
     None
 }
 
-fn run_factorization_generic<const LIMBS: usize>(
-    bytes: Vec<u8>,
-) -> Result<(BigUint, BigUint), String>
+fn run_factorization_generic<const LIMBS: usize>(bytes: Vec<u8>) -> Result<Vec<BigUint>, String>
 where
     UInt<LIMBS>: NumberOps,
 {
@@ -190,13 +190,13 @@ where
     if let Some((a, b)) = factorization {
         let prod = a.clone() * b.clone();
         println!("{} * {} = {}", a, b, prod);
-        return Ok((a, b));
+        return Ok(vec![a, b]);
     }
 
     Err("could not factorize".to_string())
 }
 
-pub fn factorize(number_repr: String) -> Result<(BigUint, BigUint), String> {
+pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {
     let n = BigUint::from_str(&number_repr).map_err(|e| e.to_string())?;
 
     println!("n: {}", n);
@@ -212,7 +212,9 @@ pub fn factorize(number_repr: String) -> Result<(BigUint, BigUint), String> {
     }
 
     if bytes.len() < 8 {
-        return run_factorization_generic::<1>(bytes);
+        return trial_divide(n.to_u64().unwrap() as usize)
+            .map(|ok| ok.into_iter().map(BigUint::from).collect_vec());
+        //return run_factorization_generic::<1>(bytes);
     }
 
     if bytes.len() < 16 {
@@ -223,5 +225,24 @@ pub fn factorize(number_repr: String) -> Result<(BigUint, BigUint), String> {
         return run_factorization_generic::<4>(bytes);
     }
 
-    return run_factorization_generic::<8>(bytes);
+    run_factorization_generic::<8>(bytes)
+}
+
+fn trial_divide(number: usize) -> Result<Vec<usize>, String> {
+    let mut to_factor = number;
+
+    let mut divisors = vec![];
+
+    for i in 2..=number.sqrt() {
+        while to_factor % i == 0 {
+            divisors.push(i);
+            to_factor /= i;
+        }
+    }
+
+    if divisors.is_empty() {
+        Err("number is prime (tested divisors up to sqrt(n))".to_string())
+    } else {
+        Ok(divisors)
+    }
 }

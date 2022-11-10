@@ -36,8 +36,8 @@ fn main() {
     }
 
     match factorize(args[1].clone()) {
-        Ok((a, b)) => {
-            println!("SUCCESS: {a}, {b}");
+        Ok(r) => {
+            println!("SUCCESS: {r:?}");
         }
 
         Err(e) => {
