@@ -1,7 +1,7 @@
 use std::iter::repeat_with;
 use std::ops::Rem;
 
-use crate::number_type::{NumberOps, NumberType};
+use crate::number_type::NumberOps;
 use crate::{sieve::SmoothNumber, solver::Solution};
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -59,9 +59,9 @@ lazy_static! {
     static ref TWO: BigUint = BigUint::from_i32(2).unwrap();
 }
 
-fn build_numbers(
+fn build_numbers<NT: NumberOps>(
     n: &BigUint,
-    smoothies: &[SmoothNumber<NumberType>],
+    smoothies: &[SmoothNumber<NT>],
     positions: &[usize],
 ) -> (BigUint, BigUint) {
     let (mut a, mut b) = (ONE.clone(), ONE.clone());
@@ -77,9 +77,9 @@ fn build_numbers(
 }
 
 #[inline]
-fn attempt_factorization(
+fn attempt_factorization<NT: NumberOps>(
     n: &BigUint,
-    smoothies: &[SmoothNumber<NumberType>],
+    smoothies: &[SmoothNumber<NT>],
     solution: &Solution,
     substitution_vector: &[bool],
 ) -> Option<(BigUint, BigUint)> {
@@ -95,9 +95,9 @@ fn attempt_factorization(
     test_factorization(n, &a, &b)
 }
 
-fn search_lonelies(
-    n: &NumberType,
-    smoothies: &[SmoothNumber<NumberType>],
+fn search_lonelies<NT: NumberOps>(
+    n: &NT,
+    smoothies: &[SmoothNumber<NT>],
     solution: &Solution,
 ) -> Option<(BigUint, BigUint)> {
     let n = n.to_varsize();
@@ -120,9 +120,9 @@ fn search_lonelies(
     None
 }
 
-pub fn find_factor_exhaustive(
-    n: &NumberType,
-    smoothies: &[SmoothNumber<NumberType>],
+pub fn find_factor_exhaustive<NT: NumberOps>(
+    n: &NT,
+    smoothies: &[SmoothNumber<NT>],
     solution: &Solution,
 ) -> Option<(BigUint, BigUint)> {
     //first, try lonely numbers - maybe, we will find perfect square without multiplying
@@ -160,16 +160,16 @@ pub fn find_factor_exhaustive(
     None
 }
 
-pub fn find_factor_simple(
-    n: &NumberType,
-    smoothies: &[SmoothNumber<NumberType>],
+pub fn find_factor_simple<NT: NumberOps>(
+    n: &NT,
+    smoothies: &[SmoothNumber<NT>],
     solution: &Solution,
 ) -> Option<(BigUint, BigUint)> {
     //first, try lonely numbers - maybe, we will find perfect square without multiplying
 
     println!("trying base vector search");
 
-    if let Some(answ) = search_lonelies(n, smoothies, solution) {
+    if let Some(answ) = search_lonelies::<NT>(n, smoothies, solution) {
         return Some(answ);
     }
 
@@ -202,9 +202,9 @@ pub fn find_factor_simple(
     None
 }
 
-pub fn find_factors_random(
-    n: &NumberType,
-    smoothies: &[SmoothNumber<NumberType>],
+pub fn find_factors_random<NT: NumberOps>(
+    n: &NT,
+    smoothies: &[SmoothNumber<NT>],
     solution: &Solution,
 ) -> Option<(BigUint, BigUint)> {
     //first, try lonely numbers - maybe, we will find perfect square without multiplying
@@ -287,9 +287,9 @@ pub fn find_factors_random(
     None
 }
 
-pub fn find_factors_from_pivots(
-    n: &NumberType,
-    smoothies: &[SmoothNumber<NumberType>],
+pub fn find_factors_from_pivots<NT: NumberOps>(
+    n: &NT,
+    smoothies: &[SmoothNumber<NT>],
     solution: &[Vec<usize>],
 ) -> Option<(BigUint, BigUint)> {
     let n = n.to_varsize();
