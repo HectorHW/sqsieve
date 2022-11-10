@@ -1,13 +1,16 @@
+#![feature(associated_type_defaults)]
+
 use std::{env::args, error::Error, iter::repeat, str::FromStr};
 
+use crypto_bigint::UInt;
 use factor_building::find_factors_from_pivots;
 use itertools::Itertools;
 use num_bigint::BigUint;
+use number_type::NumberOps;
 use sieve::SmoothNumber;
 
 use crate::{
     factor_building::{find_factor_exhaustive, find_factor_simple, find_factors_random},
-    number_type::NumberType,
     numbers::{build_factor_base, small_eratosphenes},
     sieve::{compute_b_limit, BlockSieve, LogSieve, TestDivisionSieve},
     solver::{produce_solution, CongruenceSystem},
@@ -20,9 +23,9 @@ mod factor_building;
 mod sieve;
 mod solver;
 
-fn gaussian_multistage(
-    n: &NumberType,
-    table: Vec<SmoothNumber<NumberType>>,
+fn gaussian_multistage<NT: NumberOps>(
+    n: &NT,
+    table: Vec<SmoothNumber<NT>>,
     mut system: CongruenceSystem,
 ) -> Option<(BigUint, BigUint)> {
     system.diagonalize();
@@ -45,14 +48,14 @@ fn gaussian_multistage(
 
     println!("built solution dependencies, searching for factors");
 
-    find_factor_simple(n, &table, &solution)
+    find_factor_simple::<NT>(n, &table, &solution)
         .or_else(|| find_factors_random(n, &table, &solution))
         .or_else(|| find_factor_exhaustive(n, &table, &solution))
 }
 
-fn pivot_search(
-    n: &NumberType,
-    table: Vec<SmoothNumber<NumberType>>,
+fn pivot_search<NT: NumberOps>(
+    n: &NT,
+    table: Vec<SmoothNumber<NT>>,
     mut system: CongruenceSystem,
 ) -> Option<(BigUint, BigUint)> {
     println!("using fast pivot algorithm");
@@ -65,12 +68,12 @@ fn pivot_search(
     None
 }
 
-fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> {
+fn run_factor<NT: NumberOps>(n: &NT, prime_bound: usize) -> Option<(BigUint, BigUint)> {
     let primes = small_eratosphenes(prime_bound);
 
     println!("primes until bound: {}", primes.len());
 
-    let mut factor_base = build_factor_base(primes, n);
+    let factor_base = build_factor_base(primes, n);
 
     println!("built factor base of size {}", factor_base.len(),);
 
@@ -149,38 +152,21 @@ fn run_factor(n: &NumberType, prime_bound: usize) -> Option<(BigUint, BigUint)> 
     None
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    //let n = BigUint::from_str("1577271624417732056618338337651").unwrap();
-
-    let args = args().collect::<Vec<String>>();
-
-    if args.len() != 2 {
-        return Err("please provide number as single argument".into());
-    }
-
-    let n = BigUint::from_str(&args[1]).unwrap();
-
-    println!("n: {}", n);
-
-    println!("base 10 digits: {}", n.to_string().len());
-
-    println!("bit size: {}", n.bits());
-
-    let bytes = n.to_bytes_be();
-
-    if bytes.len() > 64 {
-        return Err("number is too big".into());
-    }
+fn run_factorization_generic<const LIMBS: usize>(bytes: Vec<u8>) -> Result<(), Box<dyn Error>>
+where
+    UInt<LIMBS>: NumberOps,
+{
+    println!(
+        "used integer size: {}",
+        LIMBS * std::mem::size_of::<usize>()
+    );
 
     let bytes = repeat(0u8)
-        .take(64 - bytes.len())
+        .take(LIMBS * std::mem::size_of::<usize>() - bytes.len())
         .chain(bytes.into_iter())
         .collect_vec();
 
-    let n = NumberType::from_be_slice(&bytes);
-
-    //let prime_bound = compute_b_limit(&n);
-    //let prime_bound = compute_b_limit(&n).min(10usize.pow(3));
+    let n = <UInt<LIMBS>>::from_be_slice(&bytes);
 
     let limit = compute_b_limit(&n).min(10_000);
 
@@ -216,4 +202,45 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    //let n = BigUint::from_str("1577271624417732056618338337651").unwrap();
+
+    let args = args().collect::<Vec<String>>();
+
+    if args.len() != 2 {
+        return Err("please provide number as single argument".into());
+    }
+
+    let n = BigUint::from_str(&args[1]).unwrap();
+
+    println!("n: {}", n);
+
+    println!("base 10 digits: {}", n.to_string().len());
+
+    println!("bit size: {}", n.bits());
+
+    let bytes = n.to_bytes_be();
+
+    if bytes.len() > 64 {
+        return Err("number is too big".into());
+    }
+
+    if bytes.len() < 8 {
+        return run_factorization_generic::<1>(bytes);
+    }
+
+    if bytes.len() < 16 {
+        return run_factorization_generic::<2>(bytes);
+    }
+
+    if bytes.len() < 32 {
+        return run_factorization_generic::<4>(bytes);
+    }
+
+    return run_factorization_generic::<8>(bytes);
+
+    //let prime_bound = compute_b_limit(&n);
+    //let prime_bound = compute_b_limit(&n).min(10usize.pow(3));
 }

@@ -5,11 +5,11 @@ use itertools::Itertools;
 use num_traits::{Pow, ToPrimitive};
 
 use crate::{
-    number_type::{NumberOps, NumberType},
+    number_type::NumberOps,
     numbers::{tonelli_shanks, trial_divide},
 };
 
-pub fn compute_b_limit(n: &NumberType) -> usize {
+pub fn compute_b_limit<NT: NumberOps>(n: &NT) -> usize {
     // as we are expected to work with rather small numbers (below 100 digits),
     // we can simply cast it to float to get somewhat decent result
     // (bc f64 will support up to 10^308)
@@ -25,16 +25,16 @@ pub struct SmoothNumber<NT> {
     pub divisors: Vec<(usize, usize)>,
 }
 
-pub type SmoothiesVec = Vec<SmoothNumber<NumberType>>;
+pub type SmoothiesVec<NT> = Vec<SmoothNumber<NT>>;
 
-pub struct TestDivisionSieve {
-    n: NumberType,
+pub struct TestDivisionSieve<NT: NumberOps> {
+    n: NT,
     factor_base: Vec<usize>,
-    next_number: NumberType,
+    next_number: NT,
 }
 
-impl TestDivisionSieve {
-    pub fn new(n: NumberType, factor_base: Vec<usize>) -> Self {
+impl<NT: NumberOps> TestDivisionSieve<NT> {
+    pub fn new(n: NT, factor_base: Vec<usize>) -> Self {
         let lower_bound = n.sqrt().add_usize(1);
         TestDivisionSieve {
             n,
@@ -43,7 +43,7 @@ impl TestDivisionSieve {
         }
     }
 
-    pub fn run(&mut self, mut numbers_to_find: usize) -> SmoothiesVec {
+    pub fn run(&mut self, mut numbers_to_find: usize) -> SmoothiesVec<NT> {
         let mut result = vec![];
 
         let total_numbers = numbers_to_find;
@@ -84,24 +84,24 @@ impl TestDivisionSieve {
     }
 }
 
-pub struct BlockSieve {
-    n: NumberType,
+pub struct BlockSieve<NT: NumberOps> {
+    n: NT,
     factor_base: Vec<usize>,
     roots: Vec<Option<(usize, usize)>>,
     block_size: usize,
-    next_block: NumberType,
+    next_block: NT,
 }
 
-struct BlockEntry {
-    original_number: NumberType,
-    accumulator: NumberType,
+struct BlockEntry<NT: NumberOps> {
+    original_number: NT,
+    accumulator: NT,
     factorization: Vec<(usize, usize)>,
 }
 
 const BLOCK_SIZE: usize = 5000;
 
-impl BlockSieve {
-    pub fn new(n: NumberType, factor_base: Vec<usize>) -> Self {
+impl<NT: NumberOps> BlockSieve<NT> {
+    pub fn new(n: NT, factor_base: Vec<usize>) -> Self {
         let roots = factor_base
             .iter()
             .map(|&factor| {
@@ -136,7 +136,7 @@ impl BlockSieve {
         }
     }
 
-    pub fn run(&mut self, total_numbers: usize) -> SmoothiesVec {
+    pub fn run(&mut self, total_numbers: usize) -> SmoothiesVec<NT> {
         let mut result = vec![];
 
         let total_numbers = total_numbers as isize;
@@ -145,7 +145,7 @@ impl BlockSieve {
 
         let mut last_time = Instant::now();
 
-        let long_block_size = NumberType::convert_usize(self.block_size);
+        let long_block_size = NT::convert_usize(self.block_size);
 
         while numbers_to_find > 0 {
             let mut produced_items = self.search_block();
@@ -176,7 +176,7 @@ impl BlockSieve {
         result
     }
 
-    fn search_block(&mut self) -> Vec<SmoothNumber<NumberType>> {
+    fn search_block(&mut self) -> Vec<SmoothNumber<NT>> {
         #[cfg(feature = "verbose")]
         println!(
             "working with block size {} starting at {}",
@@ -188,7 +188,7 @@ impl BlockSieve {
 
         let mut block = repeat_with(|| {
             let number = start;
-            start = start.wrapping_add(NumberType::one());
+            start = start.wrapping_add(NT::one());
 
             BlockEntry {
                 original_number: number,
@@ -232,8 +232,8 @@ impl BlockSieve {
                 //find closest value
                 let mut idx;
 
-                let long_root = NumberType::convert_usize(root);
-                let long_prime = NumberType::convert_usize(prime);
+                let long_root = NT::convert_usize(root);
+                let long_prime = NT::convert_usize(prime);
 
                 let mut closest_element = (block[0].original_number.wrapping_sub(&long_root))
                     .wrapping_div(&long_prime)
@@ -250,7 +250,7 @@ impl BlockSieve {
 
                 debug_assert!({
                     let (_, r) = block[idx].original_number.divmod(prime);
-                    r == NumberType::convert_usize(root)
+                    r == NT::convert_usize(root)
                 });
 
                 #[cfg(feature = "verbose")]
@@ -262,7 +262,7 @@ impl BlockSieve {
                     let mut exponent = 0;
                     loop {
                         let (d, r) = block[idx].accumulator.divmod(prime);
-                        if r != NumberType::from_u32(0) {
+                        if r != NT::convert_usize(0) {
                             break;
                         }
                         exponent += 1;
@@ -280,7 +280,7 @@ impl BlockSieve {
         block
             .into_iter()
             .filter_map(|item| {
-                if &item.accumulator != NumberType::one() {
+                if &item.accumulator != NT::one() {
                     return None;
                 }
 
@@ -296,20 +296,20 @@ impl BlockSieve {
     }
 }
 
-pub struct LogSieve {
-    n: NumberType,
+pub struct LogSieve<NT: NumberOps> {
+    n: NT,
     factor_base: Vec<usize>,
     roots: Vec<Option<(usize, usize)>>,
     block_size: usize,
-    next_block: NumberType,
+    next_block: NT,
     log_treshold: f64,
 }
 
 const LOGSIEVE_BLOCK_SIZE: usize = 60_000;
 
-impl LogSieve {
+impl<NT: NumberOps> LogSieve<NT> {
     //initalization is the same, what differs is the search algorithm
-    pub fn new(n: NumberType, factor_base: Vec<usize>) -> Self {
+    pub fn new(n: NT, factor_base: Vec<usize>) -> Self {
         let roots = factor_base
             .iter()
             .map(|&factor| {
@@ -361,7 +361,7 @@ impl LogSieve {
         3.2
     }
 
-    pub fn run(&mut self, total_numbers: usize) -> SmoothiesVec {
+    pub fn run(&mut self, total_numbers: usize) -> SmoothiesVec<NT> {
         println!("running log sieve with block size of {}", self.block_size);
         let mut result = vec![];
 
@@ -371,7 +371,7 @@ impl LogSieve {
 
         let mut last_time = Instant::now();
 
-        let block_size = NumberType::convert_usize(self.block_size);
+        let block_size = NT::convert_usize(self.block_size);
 
         while numbers_to_find > 0 {
             let mut produced_items = self.search_block();
@@ -398,7 +398,7 @@ impl LogSieve {
         result
     }
 
-    fn search_block(&mut self) -> Vec<SmoothNumber<NumberType>> {
+    fn search_block(&mut self) -> Vec<SmoothNumber<NT>> {
         #[cfg(feature = "verbose")]
         println!(
             "working with block size {} starting at {}",
@@ -408,15 +408,14 @@ impl LogSieve {
 
         let mut start = self.next_block;
 
-        let (original_numbers, mut accumulators): (Vec<NumberType>, Vec<NumberType>) =
-            repeat_with(|| {
-                let number = start;
-                let accumulator = number.modpow2(&self.n);
-                start = start.wrapping_add(NumberType::one());
-                (number, accumulator)
-            })
-            .take(self.block_size)
-            .unzip();
+        let (original_numbers, mut accumulators): (Vec<NT>, Vec<NT>) = repeat_with(|| {
+            let number = start;
+            let accumulator = number.modpow2(&self.n);
+            start = start.wrapping_add(NT::one());
+            (number, accumulator)
+        })
+        .take(self.block_size)
+        .unzip();
 
         let mut logs = vec![0f64; self.block_size];
 
@@ -457,8 +456,8 @@ impl LogSieve {
                 //find closest value
                 let mut idx = 0;
 
-                let long_root = NumberType::convert_usize(root);
-                let long_prime = NumberType::convert_usize(prime);
+                let long_root = NT::convert_usize(root);
+                let long_prime = NT::convert_usize(prime);
 
                 let mut closest_element = (original_numbers[idx].wrapping_sub(&long_root))
                     .wrapping_div(&long_prime)
@@ -475,7 +474,7 @@ impl LogSieve {
 
                 debug_assert!({
                     let (_, r) = original_numbers[idx].divmod(prime);
-                    r == NumberType::convert_usize(root)
+                    r == NT::convert_usize(root)
                 });
 
                 let root_log_value = (prime as f64).log2();

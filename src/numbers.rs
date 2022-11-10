@@ -1,4 +1,4 @@
-use crate::number_type::{NumberOps, NumberType};
+use crate::number_type::NumberOps;
 
 use crypto_bigint::Zero;
 use itertools::Itertools;
@@ -129,7 +129,7 @@ pub fn tonelli_shanks(n: usize, p: usize) -> Option<usize> {
     }
 }
 
-pub fn build_factor_base(primes: Vec<usize>, n: &NumberType) -> Vec<usize> {
+pub fn build_factor_base<NT: NumberOps>(primes: Vec<usize>, n: &NT) -> Vec<usize> {
     primes
         .into_iter()
         .filter(|&prime| prime == 2 || legendre(n.to_varsize(), BigUint::from(prime)) == 1)
@@ -138,7 +138,7 @@ pub fn build_factor_base(primes: Vec<usize>, n: &NumberType) -> Vec<usize> {
 
 pub type DenseMultiplierMap = Vec<(usize, usize)>;
 
-pub fn trial_divide(n: &NumberType, prime_table: &[usize]) -> Option<DenseMultiplierMap> {
+pub fn trial_divide<NT: NumberOps>(n: &NT, prime_table: &[usize]) -> Option<DenseMultiplierMap> {
     let mut result = vec![];
 
     let mut n = n.clone();
@@ -158,12 +158,12 @@ pub fn trial_divide(n: &NumberType, prime_table: &[usize]) -> Option<DenseMultip
 
             n = d;
 
-            if &n == NumberType::one() {
+            if &n == NT::one() {
                 break 'outer;
             }
         }
     }
-    if &n == NumberType::one() {
+    if &n == NT::one() {
         Some(result)
     } else {
         None
