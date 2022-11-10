@@ -211,10 +211,13 @@ pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {
         return Err("number is too big".into());
     }
 
-    if bytes.len() < 8 {
+    if bytes.len() < 4 {
         return trial_divide(n.to_u64().unwrap() as usize)
             .map(|ok| ok.into_iter().map(BigUint::from).collect_vec());
-        //return run_factorization_generic::<1>(bytes);
+    }
+
+    if bytes.len() < 8 {
+        return run_factorization_generic::<1>(bytes);
     }
 
     if bytes.len() < 16 {
@@ -233,7 +236,7 @@ fn trial_divide(number: usize) -> Result<Vec<usize>, String> {
 
     let mut divisors = vec![];
 
-    for i in 2..=number.sqrt() {
+    for i in 2..number {
         while to_factor % i == 0 {
             divisors.push(i);
             to_factor /= i;
@@ -241,7 +244,7 @@ fn trial_divide(number: usize) -> Result<Vec<usize>, String> {
     }
 
     if divisors.is_empty() {
-        Err("number is prime (tested divisors up to sqrt(n))".to_string())
+        Err("number is prime (tested all divisors up to n)".to_string())
     } else {
         Ok(divisors)
     }
