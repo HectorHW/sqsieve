@@ -1,9 +1,10 @@
 #![allow(unused)]
-use std::{iter::repeat_with, ops::Rem, time::Instant};
+use std::{iter::repeat_with, ops::Rem, sync::atomic::AtomicUsize, time::Instant};
 
 use itertools::Itertools;
 
 use num_traits::{Pow, ToPrimitive};
+use rayon::ThreadPoolBuilder;
 
 use crate::{
     number_type::NumberOps,
@@ -335,8 +336,8 @@ impl<NT: NumberOps> LogSieve<NT> {
 
         let n_f = n.to_varsize().to_f64().unwrap();
 
-        let treshold = (block_size as f64).log2() + n_f.log2() * 0.5
-            - Self::chose_t(n_f.log10()) * (*factor_base.last().unwrap() as f64).log2();
+        let treshold = (block_size as f64).ln() + n_f.ln() * 0.5
+            - Self::chose_t(n_f.log10()) * (*factor_base.last().unwrap() as f64).ln();
 
         LogSieve {
             n,
@@ -405,46 +406,29 @@ impl<NT: NumberOps> LogSieve<NT> {
         result
     }
 
-    fn search_block(&self, mut start: NT, size: usize) -> Vec<SmoothNumber<NT>> {
+    fn search_block(&self, start: NT, size: usize) -> Vec<SmoothNumber<NT>> {
         #[cfg(feature = "verbose")]
         println!(
             "working with block size {} starting at {}",
             size,
-            self.next_block.to_varsize()
+            start.to_varsize()
         );
-
-        let (original_numbers, mut accumulators): (Vec<NT>, Vec<NT>) = repeat_with(|| {
-            let number = start;
-            let accumulator = number.modpow2(&self.n);
-            start = start.wrapping_add(NT::one());
-            (number, accumulator)
-        })
-        .take(size)
-        .unzip();
 
         let mut logs = vec![0f64; size];
 
-        let acc2 = accumulators.clone();
-
-        //sieve for 2 manually, quick bit trick
         if self.factor_base[0] == 2 {
             let mut idx: usize = 0;
 
-            let n0 = accumulators[0];
+            //we want to go from odd x cause n is odd and x^2 -n === 0 mod 2
 
-            if n0.bit_vartime(0) == 1 {
+            if !NumberOps::is_odd(&start) {
                 idx += 1;
             }
 
-            while idx < logs.len() {
-                let mut exp = 0;
-                while accumulators[idx].bit_vartime(exp) == 0 {
-                    exp += 1;
-                }
-                debug_assert!(exp > 0);
+            let l = 2f64.ln();
 
-                logs[idx] += exp as f64;
-                accumulators[idx] >>= exp;
+            while idx < logs.len() {
+                logs[idx] += l;
 
                 idx += 2;
             }
@@ -464,30 +448,28 @@ impl<NT: NumberOps> LogSieve<NT> {
                 let long_root = NT::convert_usize(root);
                 let long_prime = NT::convert_usize(prime);
 
-                let mut closest_element = (original_numbers[idx].wrapping_sub(&long_root))
+                let mut closest_element = (start.wrapping_sub(&long_root))
                     .wrapping_div(&long_prime)
                     .wrapping_mul(&long_prime)
                     .wrapping_add(&long_root);
 
-                if closest_element < original_numbers[0] {
+                if closest_element < start {
                     closest_element = closest_element.wrapping_add(&long_prime);
                 }
 
-                idx = closest_element
-                    .wrapping_sub(&original_numbers[0])
-                    .to_usize();
+                idx = closest_element.wrapping_sub(&start).to_usize();
 
                 debug_assert!({
-                    let (_, r) = original_numbers[idx].divmod(prime);
+                    let (_, r) = (start.wrapping_add(&NT::convert_usize(idx))).divmod(prime);
                     r == NT::convert_usize(root)
                 });
 
-                let root_log_value = (prime as f64).log2();
+                let root_log_value = (prime as f64).ln();
 
                 #[cfg(feature = "verbose")]
                 println!("prime is {prime}, root is {root}, idx is {idx}");
 
-                while idx < original_numbers.len() {
+                while idx < logs.len() {
                     logs[idx] += root_log_value;
 
                     idx += prime;
@@ -495,12 +477,12 @@ impl<NT: NumberOps> LogSieve<NT> {
             }
         }
 
-        original_numbers
-            .into_iter()
-            .zip(logs.into_iter())
-            .zip(acc2.into_iter())
-            .filter_map(|((n, ln), acc)| {
+        logs.into_iter()
+            .enumerate()
+            .filter_map(|(idx, ln)| {
                 if ln >= self.log_treshold {
+                    let n = start.wrapping_add(&NT::convert_usize(idx));
+                    let acc = n.modpow2(&self.n);
                     Some((n, acc))
                 } else {
                     None
@@ -516,66 +498,142 @@ impl<NT: NumberOps> LogSieve<NT> {
             .collect_vec()
     }
 
-    pub fn run_parallel(&mut self, total_numbers: usize) -> Vec<SmoothNumber<NT>> {
+    pub fn run_parallel(&mut self, numbers: usize) -> Vec<SmoothNumber<NT>> {
         use rayon::prelude::*;
         println!("running parallel log sieve");
         let mut result = vec![];
 
-        let total_numbers = total_numbers as isize;
-
-        let mut numbers_to_find = total_numbers;
-
-        let mut last_time = Instant::now();
+        let total_numbers = numbers as isize;
 
         use std::env;
 
         let threads = env::var("THREADS")
             .map(|n| n.parse::<usize>().expect("failed to parse thread count"))
             .unwrap_or(1);
+
+        if threads == 1 {
+            println!("1 thread, deferring to single-threaded code");
+            return self.run(numbers);
+        }
         let block_size = self.factor_base.last().cloned().unwrap() * 2;
 
         println!("block size is {block_size}, {threads} threads");
 
-        while numbers_to_find > 0 {
-            let jobs = repeat_with(|| {
-                let block_start = self.next_block;
+        let mut thread_pool = ThreadPoolBuilder::new()
+            .num_threads(threads + 1) //cause we need one thread to monitor state (though it will be asleep most of the time)
+            .build()
+            .unwrap();
 
-                self.next_block = self.next_block.add_usize(block_size);
+        use std::sync::{atomic::AtomicIsize, atomic::Ordering, Condvar, Mutex};
 
-                (block_start, block_size)
-            })
-            .take(threads)
-            .collect_vec();
+        let mut results = AtomicIsize::new(total_numbers);
 
-            let items = jobs
-                .into_par_iter()
-                .map(|(start, size)| self.search_block(start, size))
-                .collect::<Vec<_>>();
+        let mut blocks_searched = 0usize;
 
-            #[cfg(feature = "verbose")]
-            println!("block produced {} items", produced_items.len());
+        let mut result_queue = Mutex::new(vec![]);
 
-            numbers_to_find -= items.iter().map(|v| v.len()).sum::<usize>() as isize;
+        let (mut cvar, mut lock) = (Condvar::default(), Mutex::new(false));
 
-            for mut item in items {
-                result.append(&mut item);
+        let mut next_block = self.next_block;
+
+        let mut last_time = Instant::now();
+
+        thread_pool.scope(|s| {
+            for _ in 0..threads {
+                let block_start = next_block;
+
+                let results = &results;
+                let mut result_queue = &result_queue;
+
+                let state = &*self;
+
+                let (cvar, lock) = (&cvar, &lock);
+
+                s.spawn(move |_| {
+                    let items = state.search_block(block_start, block_size);
+
+                    results.fetch_sub(items.len() as isize, Ordering::SeqCst);
+                    {
+                        result_queue.lock().unwrap().push(items);
+                    }
+
+                    {
+                        let mut done = lock.lock().unwrap();
+                        *done = true;
+                    }
+                    cvar.notify_one();
+                });
+
+                next_block = next_block.add_usize(block_size);
             }
 
-            let now = Instant::now();
+            //spawn new tasks when someone finishes
+            loop {
+                let mut status = lock.lock().unwrap();
+                while !*status {
+                    status = cvar.wait(status).unwrap();
+                }
 
-            if (now - last_time).as_secs() >= 5 {
-                last_time = now;
-                println!(
-                    "done {:.1}%",
-                    (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
-                );
+                *status = false;
+
+                blocks_searched += 1;
+
+                let numbers_to_find = results.load(Ordering::SeqCst);
+
+                if numbers_to_find < 0 {
+                    break;
+                }
+
+                {
+                    let block_start = next_block;
+
+                    let results = &results;
+                    let mut result_queue = &result_queue;
+
+                    let state = &*self;
+
+                    let (cvar, lock) = (&cvar, &lock);
+
+                    s.spawn(move |_| {
+                        let items = state.search_block(block_start, block_size);
+
+                        results.fetch_sub(items.len() as isize, Ordering::SeqCst);
+                        {
+                            result_queue.lock().unwrap().push(items);
+                        }
+
+                        {
+                            let mut done = lock.lock().unwrap();
+                            *done = true;
+                        }
+                        cvar.notify_one();
+                    });
+
+                    next_block = next_block.add_usize(block_size);
+                }
+
+                let now = Instant::now();
+
+                if (now - last_time).as_secs() >= 5 {
+                    last_time = now;
+                    println!(
+                        "done {:.1}%",
+                        (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+                    );
+                }
             }
-        }
+        });
 
         println!(
-            "done {:.1}%",
-            (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+            "done {:.1}%, searched {blocks_searched} blocks",
+            (total_numbers - results.load(Ordering::SeqCst)) as f64 / total_numbers as f64 * 100f64
         );
+
+        self.next_block = next_block;
+
+        for mut number_pack in result_queue.into_inner().unwrap() {
+            result.append(&mut number_pack);
+        }
 
         result
     }
