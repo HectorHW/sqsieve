@@ -1,9 +1,10 @@
 #![allow(unused)]
-use std::{iter::repeat_with, ops::Rem, time::Instant};
+use std::{iter::repeat_with, ops::Rem, sync::atomic::AtomicUsize, time::Instant};
 
 use itertools::Itertools;
 
 use num_traits::{Pow, ToPrimitive};
+use rayon::ThreadPoolBuilder;
 
 use crate::{
     number_type::NumberOps,
@@ -424,8 +425,10 @@ impl<NT: NumberOps> LogSieve<NT> {
                 idx += 1;
             }
 
+            let l = 2f64.ln();
+
             while idx < logs.len() {
-                logs[idx] += 1f64;
+                logs[idx] += l;
 
                 idx += 2;
             }
@@ -502,10 +505,6 @@ impl<NT: NumberOps> LogSieve<NT> {
 
         let total_numbers = total_numbers as isize;
 
-        let mut numbers_to_find = total_numbers;
-
-        let mut last_time = Instant::now();
-
         use std::env;
 
         let threads = env::var("THREADS")
@@ -515,46 +514,121 @@ impl<NT: NumberOps> LogSieve<NT> {
 
         println!("block size is {block_size}, {threads} threads");
 
-        while numbers_to_find > 0 {
-            let jobs = repeat_with(|| {
-                let block_start = self.next_block;
+        let mut thread_pool = ThreadPoolBuilder::new()
+            .num_threads(threads + 1) //cause we need one thread to monitor state (though it will be asleep most of the time)
+            .build()
+            .unwrap();
 
-                self.next_block = self.next_block.add_usize(block_size);
+        use std::sync::{atomic::AtomicIsize, atomic::Ordering, Condvar, Mutex};
 
-                (block_start, block_size)
-            })
-            .take(threads)
-            .collect_vec();
+        let mut results = AtomicIsize::new(total_numbers);
 
-            let items = jobs
-                .into_par_iter()
-                .map(|(start, size)| self.search_block(start, size))
-                .collect::<Vec<_>>();
+        let mut blocks_searched = 0usize;
 
-            #[cfg(feature = "verbose")]
-            println!("block produced {} items", produced_items.len());
+        let mut result_queue = Mutex::new(vec![]);
 
-            numbers_to_find -= items.iter().map(|v| v.len()).sum::<usize>() as isize;
+        let (mut cvar, mut lock) = (Condvar::default(), Mutex::new(false));
 
-            for mut item in items {
-                result.append(&mut item);
+        let mut next_block = self.next_block;
+
+        let mut last_time = Instant::now();
+
+        thread_pool.scope(|s| {
+            for _ in 0..threads {
+                let block_start = next_block;
+
+                let results = &results;
+                let mut result_queue = &result_queue;
+
+                let state = &*self;
+
+                let (cvar, lock) = (&cvar, &lock);
+
+                s.spawn(move |_| {
+                    let items = state.search_block(block_start, block_size);
+
+                    results.fetch_sub(items.len() as isize, Ordering::SeqCst);
+                    {
+                        result_queue.lock().unwrap().push(items);
+                    }
+
+                    {
+                        let mut done = lock.lock().unwrap();
+                        *done = true;
+                    }
+                    cvar.notify_one();
+                });
+
+                next_block = next_block.add_usize(block_size);
             }
 
-            let now = Instant::now();
+            //spawn new tasks when someone finishes
+            loop {
+                let mut status = lock.lock().unwrap();
+                while !*status {
+                    status = cvar.wait(status).unwrap();
+                }
 
-            if (now - last_time).as_secs() >= 5 {
-                last_time = now;
-                println!(
-                    "done {:.1}%",
-                    (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
-                );
+                *status = false;
+
+                blocks_searched += 1;
+
+                let numbers_to_find = results.load(Ordering::SeqCst);
+
+                if numbers_to_find < 0 {
+                    break;
+                }
+
+                {
+                    let block_start = next_block;
+
+                    let results = &results;
+                    let mut result_queue = &result_queue;
+
+                    let state = &*self;
+
+                    let (cvar, lock) = (&cvar, &lock);
+
+                    s.spawn(move |_| {
+                        let items = state.search_block(block_start, block_size);
+
+                        results.fetch_sub(items.len() as isize, Ordering::SeqCst);
+                        {
+                            result_queue.lock().unwrap().push(items);
+                        }
+
+                        {
+                            let mut done = lock.lock().unwrap();
+                            *done = true;
+                        }
+                        cvar.notify_one();
+                    });
+
+                    next_block = next_block.add_usize(block_size);
+                }
+
+                let now = Instant::now();
+
+                if (now - last_time).as_secs() >= 5 {
+                    last_time = now;
+                    println!(
+                        "done {:.1}%",
+                        (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+                    );
+                }
             }
-        }
+        });
 
         println!(
-            "done {:.1}%",
-            (total_numbers - numbers_to_find) as f64 / total_numbers as f64 * 100f64
+            "done {:.1}%, searched {blocks_searched} blocks",
+            (total_numbers - results.load(Ordering::SeqCst)) as f64 / total_numbers as f64 * 100f64
         );
+
+        self.next_block = next_block;
+
+        for mut number_pack in result_queue.into_inner().unwrap() {
+            result.append(&mut number_pack);
+        }
 
         result
     }
