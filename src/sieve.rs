@@ -498,18 +498,23 @@ impl<NT: NumberOps> LogSieve<NT> {
             .collect_vec()
     }
 
-    pub fn run_parallel(&mut self, total_numbers: usize) -> Vec<SmoothNumber<NT>> {
+    pub fn run_parallel(&mut self, numbers: usize) -> Vec<SmoothNumber<NT>> {
         use rayon::prelude::*;
         println!("running parallel log sieve");
         let mut result = vec![];
 
-        let total_numbers = total_numbers as isize;
+        let total_numbers = numbers as isize;
 
         use std::env;
 
         let threads = env::var("THREADS")
             .map(|n| n.parse::<usize>().expect("failed to parse thread count"))
             .unwrap_or(1);
+
+        if threads == 1 {
+            println!("1 thread, deferring to single-threaded code");
+            return self.run(numbers);
+        }
         let block_size = self.factor_base.last().cloned().unwrap() * 2;
 
         println!("block size is {block_size}, {threads} threads");
