@@ -36,6 +36,7 @@ where
     fn sqrt(&self) -> Self;
 
     fn size_in_bytes() -> usize;
+    fn is_odd(&self) -> bool;
 }
 
 macro_rules! impl_number_ops {
@@ -136,6 +137,10 @@ macro_rules! impl_number_ops {
             fn size_in_bytes() -> usize {
                 $size
             }
+
+            fn is_odd(&self) -> bool {
+                <Self as Integer>::is_odd(self).unwrap_u8() == 0
+            }
         }
     };
 }
@@ -154,9 +159,18 @@ mod tests {
     #[test]
     fn number_uses_little_endian() {
         let original_number = 153;
+
         assert_eq!(
             U512::convert_usize(original_number).to_usize(),
             original_number
         )
+    }
+
+    #[test]
+    fn testing_is_odd_works() {
+        assert!(!U512::convert_usize(2).is_odd());
+        assert!(!U512::convert_usize(0).is_odd());
+        assert!(U512::convert_usize(1).is_odd());
+        assert!(U512::convert_usize(3).is_odd());
     }
 }

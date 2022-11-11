@@ -405,15 +405,31 @@ impl<NT: NumberOps> LogSieve<NT> {
         result
     }
 
-    fn search_block(&self, mut start: NT, size: usize) -> Vec<SmoothNumber<NT>> {
+    fn search_block(&self, start: NT, size: usize) -> Vec<SmoothNumber<NT>> {
         #[cfg(feature = "verbose")]
         println!(
             "working with block size {} starting at {}",
             size,
-            self.next_block.to_varsize()
+            start.to_varsize()
         );
 
         let mut logs = vec![0f64; size];
+
+        if self.factor_base[0] == 2 {
+            let mut idx: usize = 0;
+
+            //we want to go from odd x cause n is odd and x^2 -n === 0 mod 2
+
+            if !NumberOps::is_odd(&start) {
+                idx += 1;
+            }
+
+            while idx < logs.len() {
+                logs[idx] += 1f64;
+
+                idx += 2;
+            }
+        }
 
         for (i, &prime) in self.factor_base.iter().enumerate() {
             //find start of sequence by trying different items
