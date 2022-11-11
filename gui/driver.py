@@ -3,7 +3,7 @@ import subprocess
 import re
 
 
-class FactorizationError(Exception):
+class FactorizationError(ValueError):
     pass
 
 
@@ -17,7 +17,7 @@ def factorize(n: int) -> Tuple[int, int]:
         "\n") if "SUCCESS" in line or "ERROR" in line)
 
     if "ERROR" in result:
-        raise FactorizationError(result)
+        raise FactorizationError(result[6:].strip())
 
     numbers = re.findall("\d+", result)
     if len(numbers) > 2:

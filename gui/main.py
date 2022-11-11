@@ -132,8 +132,8 @@ while True:
 
         try:
             data = crack_keypair(n, e)
-        except (ValueError | FactorizationError) as e:
-            sg.Popup(f"ОШИБКА:{e.args[0]}")
+        except ValueError as e:
+            sg.Popup(f"ERROR: {e.args[0]}")
             continue
         keypair = data.keypair
         e_field.update(value=keypair.public.e)
