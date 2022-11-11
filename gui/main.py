@@ -29,12 +29,14 @@ phi_field = sg.InputText(disabled=True)
 
 
 message_text = sg.InputText(enable_events=True, key="message_text")
-message_data = sg.InputText(enable_events=True, key="message_data")
+message_data = sg.InputText(
+    default_text=0, enable_events=True, key="message_data")
 
 encrypt_bttn = sg.Button("encrypt", key="encrypt")
 decrypt_bttn = sg.Button("decrypt", key="decrypt")
 
-cypher_data = sg.InputText(enable_events=True, key="cypher_data")
+cypher_data = sg.InputText(
+    default_text=0, enable_events=True, key="cypher_data")
 
 
 layout = [
@@ -56,6 +58,8 @@ layout = [
     [message_data],
 
     [encrypt_bttn, decrypt_bttn],
+
+    [sg.Text("cyphertext")],
 
     [cypher_data]
 ]
@@ -93,6 +97,17 @@ def decode_safe(data: int) -> str:
     return "".join(letters)
 
 
+def encode(data: str) -> int:
+    if not data:
+        return 0
+    try:
+        return int("".join([
+            str(16 + ALPHABET.index(c)) for c in data
+        ]))
+    except IndexError:
+        raise ValueError("недопустимые символы в вводе")
+
+
 def fetch_value(ptr: str) -> int:
     try:
         return int(globals()[ptr+"_field"].get())
@@ -114,8 +129,16 @@ while True:
             number = int(text) if text.strip() else 0
             message_text.update(value=decode_safe(number))
     elif event == "message_text":
-        message_data.update(value=int.from_bytes(
-            message_text.get().encode(), byteorder="big"))
+
+        text = message_text.get()
+
+        text = "".join(filter(lambda c: c in ALPHABET, text))
+        message_text.update(value=text, move_cursor_to=None)
+
+        message_data.update(
+            value=str(encode(text))
+        )
+
     elif event in ["bitness", "e", "n", "d"]:
         edited_field = globals()[event+"_field"]
         text = edited_field.get()
@@ -151,9 +174,9 @@ while True:
             sg.Popup(f"недопустимое значение {e.args[0]}")
             continue
 
-        text = message_data.get()
+        data = message_data.get()
 
-        number = int(text)
+        number = int(data)
 
         if number >= n:
             sg.Popup(
