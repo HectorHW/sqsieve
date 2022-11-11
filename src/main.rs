@@ -3,6 +3,8 @@
 use std::env::args;
 
 use factorization::factorize;
+use itertools::Itertools;
+use num_bigint::BigUint;
 
 mod number_type;
 mod numbers;
@@ -23,8 +25,12 @@ fn main() {
     }
 
     match factorize(args[1].clone()) {
-        Ok(r) => {
-            println!("SUCCESS: {r:?}");
+        Ok(items) => {
+            let prod: BigUint = items.iter().product();
+            let eq = items.iter().map(|n| n.to_string()).join(" * ");
+            println!("{eq} = {prod}");
+
+            println!("SUCCESS: {items:?}");
         }
 
         Err(e) => {

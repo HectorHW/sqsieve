@@ -5,6 +5,7 @@ use crate::number_type::NumberOps;
 use crate::sieve::SmoothNumber;
 use crypto_bigint::UInt;
 use itertools::Itertools;
+use miller_rabin::is_prime;
 use num_bigint::BigUint;
 use num_traits::ToPrimitive;
 
@@ -193,25 +194,24 @@ where
     let factorization = run_factor(&n, prime_bound);
 
     println!("factorization: {factorization:?}");
+    println!("searching for more multipliers");
 
     if let Some((a, b)) = factorization {
-        let prod = a.clone() * b.clone();
-        println!("{} * {} = {}", a, b, prod);
-        return Ok(vec![a, b]);
+        let items = [a, b]
+            .into_iter()
+            .flat_map(|item| dispatch_factorization(item.clone()).unwrap_or_else(|_| vec![item]))
+            .collect_vec();
+        return Ok(items);
     }
 
     Err("could not factorize. Maybe it's a prime after all?".to_string())
 }
 
-pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {
-    let n = BigUint::from_str(&number_repr).map_err(|e| e.to_string())?;
+fn test_prime(n: &BigUint) -> bool {
+    is_prime(n, (n.bits() * 2) as usize)
+}
 
-    println!("n: {}", n);
-
-    println!("base 10 digits: {}", n.to_string().len());
-
-    println!("bit size: {}", n.bits());
-
+fn dispatch_factorization(n: BigUint) -> Result<Vec<BigUint>, String> {
     let bytes = n.to_bytes_be();
 
     if bytes.len() >= 64 {
@@ -221,6 +221,10 @@ pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {
     if bytes.len() < 4 {
         return trial_divide(n.to_u64().unwrap() as usize)
             .map(|ok| ok.into_iter().map(BigUint::from).collect_vec());
+    }
+
+    if test_prime(&n) {
+        return Err("provided number is prime".into());
     }
 
     if bytes.len() < 8 {
@@ -238,7 +242,20 @@ pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {
     run_factorization_generic::<8>(bytes)
 }
 
+pub fn factorize(number_repr: String) -> Result<Vec<BigUint>, String> {
+    let n = BigUint::from_str(&number_repr).map_err(|e| e.to_string())?;
+
+    println!("n: {}", n);
+
+    println!("base 10 digits: {}", n.to_string().len());
+
+    println!("bit size: {}", n.bits());
+
+    dispatch_factorization(n)
+}
+
 fn trial_divide(number: usize) -> Result<Vec<usize>, String> {
+    println!("doing trial divisions");
     let mut to_factor = number;
 
     let mut divisors = vec![];
