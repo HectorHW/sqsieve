@@ -335,8 +335,8 @@ impl<NT: NumberOps> LogSieve<NT> {
 
         let n_f = n.to_varsize().to_f64().unwrap();
 
-        let treshold = (block_size as f64).log2() + n_f.log2() * 0.5
-            - Self::chose_t(n_f.log10()) * (*factor_base.last().unwrap() as f64).log2();
+        let treshold = (block_size as f64).ln() + n_f.ln() * 0.5
+            - Self::chose_t(n_f.log10()) * (*factor_base.last().unwrap() as f64).ln();
 
         LogSieve {
             n,
@@ -413,42 +413,7 @@ impl<NT: NumberOps> LogSieve<NT> {
             self.next_block.to_varsize()
         );
 
-        let (original_numbers, mut accumulators): (Vec<NT>, Vec<NT>) = repeat_with(|| {
-            let number = start;
-            let accumulator = number.modpow2(&self.n);
-            start = start.wrapping_add(NT::one());
-            (number, accumulator)
-        })
-        .take(size)
-        .unzip();
-
         let mut logs = vec![0f64; size];
-
-        let acc2 = accumulators.clone();
-
-        //sieve for 2 manually, quick bit trick
-        if self.factor_base[0] == 2 {
-            let mut idx: usize = 0;
-
-            let n0 = accumulators[0];
-
-            if n0.bit_vartime(0) == 1 {
-                idx += 1;
-            }
-
-            while idx < logs.len() {
-                let mut exp = 0;
-                while accumulators[idx].bit_vartime(exp) == 0 {
-                    exp += 1;
-                }
-                debug_assert!(exp > 0);
-
-                logs[idx] += exp as f64;
-                accumulators[idx] >>= exp;
-
-                idx += 2;
-            }
-        }
 
         for (i, &prime) in self.factor_base.iter().enumerate() {
             //find start of sequence by trying different items
@@ -464,30 +429,28 @@ impl<NT: NumberOps> LogSieve<NT> {
                 let long_root = NT::convert_usize(root);
                 let long_prime = NT::convert_usize(prime);
 
-                let mut closest_element = (original_numbers[idx].wrapping_sub(&long_root))
+                let mut closest_element = (start.wrapping_sub(&long_root))
                     .wrapping_div(&long_prime)
                     .wrapping_mul(&long_prime)
                     .wrapping_add(&long_root);
 
-                if closest_element < original_numbers[0] {
+                if closest_element < start {
                     closest_element = closest_element.wrapping_add(&long_prime);
                 }
 
-                idx = closest_element
-                    .wrapping_sub(&original_numbers[0])
-                    .to_usize();
+                idx = closest_element.wrapping_sub(&start).to_usize();
 
                 debug_assert!({
-                    let (_, r) = original_numbers[idx].divmod(prime);
+                    let (_, r) = (start.wrapping_add(&NT::convert_usize(idx))).divmod(prime);
                     r == NT::convert_usize(root)
                 });
 
-                let root_log_value = (prime as f64).log2();
+                let root_log_value = (prime as f64).ln();
 
                 #[cfg(feature = "verbose")]
                 println!("prime is {prime}, root is {root}, idx is {idx}");
 
-                while idx < original_numbers.len() {
+                while idx < logs.len() {
                     logs[idx] += root_log_value;
 
                     idx += prime;
@@ -495,12 +458,12 @@ impl<NT: NumberOps> LogSieve<NT> {
             }
         }
 
-        original_numbers
-            .into_iter()
-            .zip(logs.into_iter())
-            .zip(acc2.into_iter())
-            .filter_map(|((n, ln), acc)| {
+        logs.into_iter()
+            .enumerate()
+            .filter_map(|(idx, ln)| {
                 if ln >= self.log_treshold {
+                    let n = start.wrapping_add(&NT::convert_usize(idx));
+                    let acc = n.modpow2(&self.n);
                     Some((n, acc))
                 } else {
                     None
